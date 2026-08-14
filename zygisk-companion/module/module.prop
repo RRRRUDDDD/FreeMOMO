@@ -1,0 +1,6 @@
+id=freemomo_zygisk
+name=FreeMOMO Zygisk Companion
+version=1.0.0
+versionCode=1
+author=RUD
+description=FreeMOMO native companion for Momo; applies a version- and signature-validated early SecNeo patch and fails closed on mismatch.

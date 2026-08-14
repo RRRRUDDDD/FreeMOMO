@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">FreeMOMO</string>
+    <string name="xposed_description">FreeMOMO LSPosed Java companion for Momo Java hooks</string>
+</resources>

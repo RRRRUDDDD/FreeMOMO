@@ -1,0 +1,221 @@
+name: Signed Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+      - '20*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: freemomo-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      EXPECTED_SIGNER_SHA256: 195835624B54A0CAA2F65225E6C087DC6FA9F5712B3AC371B9FF01466E1328B6
+      ANDROID_BUILD_TOOLS: 36.1.0
+      ANDROID_NDK_VERSION: 21.4.7075529
+
+    steps:
+      - name: Check out source
+        # actions/checkout v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Java
+        # actions/setup-java v5.7.0
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        # android-actions/setup-android v4.0.1
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699
+
+      - name: Install Android SDK packages
+        shell: pwsh
+        run: |
+          $sdkManager = (Get-Command sdkmanager -ErrorAction Stop).Source
+          & $sdkManager "platforms;android-36" "build-tools;$env:ANDROID_BUILD_TOOLS" "ndk;$env:ANDROID_NDK_VERSION"
+          if ($LASTEXITCODE -ne 0) {
+            throw "sdkmanager failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Validate signing inputs
+        shell: pwsh
+        env:
+          FREEMOMO_KEYSTORE_BASE64: ${{ secrets.FREEMOMO_KEYSTORE_BASE64 }}
+          FREEMOMO_KEYSTORE_PASSWORD: ${{ secrets.FREEMOMO_KEYSTORE_PASSWORD }}
+          FREEMOMO_KEY_PASSWORD: ${{ secrets.FREEMOMO_KEY_PASSWORD }}
+          FREEMOMO_KEY_ALIAS: ${{ secrets.FREEMOMO_KEY_ALIAS }}
+          FREEMOMO_KEYSTORE_TYPE: ${{ secrets.FREEMOMO_KEYSTORE_TYPE }}
+        run: |
+          $required = @(
+            $env:FREEMOMO_KEYSTORE_BASE64,
+            $env:FREEMOMO_KEYSTORE_PASSWORD,
+            $env:FREEMOMO_KEY_PASSWORD,
+            $env:FREEMOMO_KEY_ALIAS,
+            $env:FREEMOMO_KEYSTORE_TYPE
+          )
+          if ($required | Where-Object { [string]::IsNullOrWhiteSpace($_) }) {
+            throw 'One or more required release signing secrets are missing'
+          }
+          if ($env:FREEMOMO_KEYSTORE_TYPE -notin @('JKS', 'PKCS12')) {
+            throw "Unsupported keystore type: $env:FREEMOMO_KEYSTORE_TYPE"
+          }
+
+      - name: Extract release metadata
+        shell: pwsh
+        run: |
+          $gradle = Get-Content -LiteralPath 'app/build.gradle' -Raw
+          $versionMatch = [regex]::Match($gradle, 'def\s+appVersionName\s*=\s*"([^"]+)"')
+          $codeMatch = [regex]::Match($gradle, 'versionCode\s+(\d+)')
+          if (-not $versionMatch.Success -or -not $codeMatch.Success) {
+            throw 'Unable to read release version metadata'
+          }
+          $appVersion = $versionMatch.Groups[1].Value
+          $versionCode = $codeMatch.Groups[1].Value
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $allowedTags = @("v$appVersion", $versionCode)
+            if ($env:GITHUB_REF_NAME -notin $allowedTags) {
+              throw "Tag '$env:GITHUB_REF_NAME' does not match $($allowedTags -join ' or ')"
+            }
+          }
+          $lines = @(
+            "APP_VERSION=$appVersion",
+            "APP_VERSION_CODE=$versionCode"
+          )
+          [IO.File]::AppendAllText($env:GITHUB_ENV, (($lines -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+
+      - name: Run host tests, lint, and Android builds
+        shell: pwsh
+        run: |
+          .\gradlew.bat testDebugUnitTest lintDebug assembleDebug assembleRelease --no-daemon --console=plain
+          if ($LASTEXITCODE -ne 0) {
+            throw "Gradle validation failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Build Zygisk companion
+        shell: pwsh
+        run: |
+          $env:ANDROID_NDK_HOME = Join-Path $env:ANDROID_SDK_ROOT "ndk\$env:ANDROID_NDK_VERSION"
+          .\zygisk-companion\build.ps1 -NdkPath $env:ANDROID_NDK_HOME
+          if ($LASTEXITCODE -ne 0) {
+            throw "Zygisk build failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Decode signing keystore
+        shell: pwsh
+        env:
+          FREEMOMO_KEYSTORE_BASE64: ${{ secrets.FREEMOMO_KEYSTORE_BASE64 }}
+        run: |
+          $keystorePath = Join-Path $env:RUNNER_TEMP 'freemomo-release.p12'
+          try {
+            $bytes = [Convert]::FromBase64String($env:FREEMOMO_KEYSTORE_BASE64)
+            if ($bytes.Length -lt 1000) {
+              throw 'Decoded keystore is unexpectedly small'
+            }
+            [IO.File]::WriteAllBytes($keystorePath, $bytes)
+            [IO.File]::AppendAllText($env:GITHUB_ENV, "FREEMOMO_KEYSTORE_PATH=$keystorePath`n", [Text.UTF8Encoding]::new($false))
+          } finally {
+            $bytes = $null
+          }
+
+      - name: Sign and verify release APK
+        shell: pwsh
+        env:
+          FREEMOMO_KEYSTORE_PASSWORD: ${{ secrets.FREEMOMO_KEYSTORE_PASSWORD }}
+          FREEMOMO_KEY_PASSWORD: ${{ secrets.FREEMOMO_KEY_PASSWORD }}
+          FREEMOMO_KEY_ALIAS: ${{ secrets.FREEMOMO_KEY_ALIAS }}
+          FREEMOMO_KEYSTORE_TYPE: ${{ secrets.FREEMOMO_KEYSTORE_TYPE }}
+        run: |
+          $unsigned = @(Get-ChildItem -LiteralPath 'app/build/outputs/apk/release' -Filter '*-release-unsigned.apk' -File)
+          if ($unsigned.Count -ne 1) {
+            throw "Expected one unsigned release APK, found $($unsigned.Count)"
+          }
+          $outputDirectory = 'build/release'
+          New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
+          $signedPath = Join-Path $outputDirectory 'freemomo.apk'
+          $buildTools = Join-Path $env:ANDROID_SDK_ROOT "build-tools\$env:ANDROID_BUILD_TOOLS"
+          $apksigner = Join-Path $buildTools 'apksigner.bat'
+          $aapt = Join-Path $buildTools 'aapt.exe'
+          $zipalign = Join-Path $buildTools 'zipalign.exe'
+          & $apksigner sign `
+            --ks $env:FREEMOMO_KEYSTORE_PATH `
+            --ks-type $env:FREEMOMO_KEYSTORE_TYPE `
+            --ks-key-alias $env:FREEMOMO_KEY_ALIAS `
+            --ks-pass env:FREEMOMO_KEYSTORE_PASSWORD `
+            --key-pass env:FREEMOMO_KEY_PASSWORD `
+            --v1-signing-enabled false `
+            --v2-signing-enabled true `
+            --v3-signing-enabled true `
+            --out $signedPath `
+            $unsigned[0].FullName
+          if ($LASTEXITCODE -ne 0) {
+            throw "APK signing failed with exit code $LASTEXITCODE"
+          }
+          $verification = & $apksigner verify --verbose --print-certs -- $signedPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "APK verification failed with exit code $LASTEXITCODE"
+          }
+          $digestLine = $verification | Where-Object { $_ -match '^Signer #1 certificate SHA-256 digest:' } | Select-Object -First 1
+          if ($null -eq $digestLine) {
+            throw 'APK signer certificate digest was not reported'
+          }
+          $actualDigest = (($digestLine -split ': ', 2)[1]).Replace(':', '').ToUpperInvariant()
+          if ($actualDigest -ne $env:EXPECTED_SIGNER_SHA256) {
+            throw "Unexpected APK signer certificate digest: $actualDigest"
+          }
+          $badging = & $aapt dump badging $signedPath | Select-Object -First 1
+          if ($badging -notmatch "package: name='com\.rud\.freemomo' versionCode='$env:APP_VERSION_CODE' versionName='$env:APP_VERSION'") {
+            throw "Unexpected APK package metadata: $badging"
+          }
+          & $zipalign -c -P 16 -v 4 $signedPath | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Signed APK is not zipaligned'
+          }
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "SIGNED_APK_PATH=$signedPath`n", [Text.UTF8Encoding]::new($false))
+
+      - name: Prepare direct release assets
+        shell: pwsh
+        run: |
+          $zygisk = @(Get-ChildItem -LiteralPath 'zygisk-companion/build' -Filter 'freemomo-zygisk-*.zip' -File)
+          if ($zygisk.Count -ne 1) {
+            throw "Expected one Zygisk ZIP, found $($zygisk.Count)"
+          }
+          $zygiskPath = Join-Path 'build/release' 'freemomo-zygisk.zip'
+          Copy-Item -LiteralPath $zygisk[0].FullName -Destination $zygiskPath -Force
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "ZYGISK_ZIP_PATH=$zygiskPath`n", [Text.UTF8Encoding]::new($false))
+
+      - name: Create GitHub Release for tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME `
+            --repo $env:GITHUB_REPOSITORY `
+            --verify-tag `
+            --title "FreeMOMO $env:APP_VERSION" `
+            --generate-notes `
+            $env:SIGNED_APK_PATH `
+            $env:ZYGISK_ZIP_PATH
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub Release creation failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Remove decoded keystore
+        if: always()
+        shell: pwsh
+        run: |
+          $keystorePath = Join-Path $env:RUNNER_TEMP 'freemomo-release.p12'
+          if (Test-Path -LiteralPath $keystorePath) {
+            Remove-Item -LiteralPath $keystorePath -Force
+          }

@@ -1,0 +1,55 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+def appVersionName = "3.0"
+
+android {
+    namespace = "com.rud.freemomo"
+    compileSdk 36
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    defaultConfig {
+        applicationId "com.rud.freemomo"
+        minSdk 28
+        targetSdk 36
+        versionCode 20260814
+        versionName appVersionName
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+    kotlinOptions {
+        jvmTarget = '11'
+    }
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.outputs.each { output ->
+            def suffix = variant.buildType == "release" ? "release-unsigned" : variant.buildType
+            output.outputFileName.set("freemomo-${appVersionName}-${suffix}.apk")
+        }
+    }
+}
+
+dependencies {
+    // Xposed（compileOnly：仅编译期可用，不打包进 APK，运行时由 LSPosed 提供）
+    compileOnly 'de.robv.android.xposed:api:82'
+
+    // Test
+    testImplementation 'junit:junit:4.13.2'
+}
