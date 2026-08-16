@@ -9,9 +9,3 @@ LOCAL_SRC_FILES := module.cpp secneo_patch.cpp
 LOCAL_CPPFLAGS := $(MOMO_COMMON_CPPFLAGS)
 LOCAL_LDLIBS := -llog
 include $(BUILD_SHARED_LIBRARY)
-
-include $(CLEAR_VARS)
-LOCAL_MODULE := momo_secneo_test
-LOCAL_SRC_FILES := test_api.cpp secneo_patch.cpp
-LOCAL_CPPFLAGS := $(MOMO_COMMON_CPPFLAGS)
-include $(BUILD_SHARED_LIBRARY)

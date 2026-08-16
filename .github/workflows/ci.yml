@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: freemomo-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_BUILD_TOOLS: 36.1.0
+
+    steps:
+      - name: Check out source
+        # actions/checkout v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Java
+        # actions/setup-java v5.7.0
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        # android-actions/setup-android v4.0.1
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-36" "build-tools;$ANDROID_BUILD_TOOLS"
+
+      - name: Run native host tests
+        run: bash zygisk-companion/test-host.sh
+
+      - name: Run unit tests, lint, and Android builds
+        run: |
+          chmod +x gradlew
+          ./gradlew test lint assembleDebug assembleRelease --no-daemon --console=plain
+
+      - name: Upload CI APKs
+        # actions/upload-artifact v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: freemomo-ci-apks
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14

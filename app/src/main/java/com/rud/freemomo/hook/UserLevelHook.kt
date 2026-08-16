@@ -2,6 +2,7 @@ package com.rud.freemomo.hook
 
 import com.rud.freemomo.util.HookCache
 import com.rud.freemomo.util.Logger
+import com.rud.freemomo.util.ThrowablePolicy
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import java.lang.reflect.Method
@@ -85,6 +86,7 @@ class UserLevelHook {
             XposedBridge.log("FreeMOMO: cloud $source installed -> ${target.displayName}")
             true
         } catch (error: Throwable) {
+            ThrowablePolicy.rethrowIfFatal(error)
             Logger.error("cloud $source install rejected: ${target.displayName}", error)
             false
         }
@@ -108,9 +110,25 @@ class UserLevelHook {
             )
             true
         } catch (error: Throwable) {
-            unhooks.forEach { it.unhook() }
+            rollback(unhooks, capability, source)
+            ThrowablePolicy.rethrowIfFatal(error)
             Logger.error("$capability $source group install rejected", error)
             false
+        }
+    }
+
+    private fun rollback(
+        unhooks: List<XC_MethodHook.Unhook>,
+        capability: String,
+        source: String
+    ) {
+        unhooks.asReversed().forEach { unhook ->
+            try {
+                unhook.unhook()
+            } catch (rollbackError: Throwable) {
+                ThrowablePolicy.rethrowIfFatal(rollbackError)
+                Logger.error("$capability $source rollback failed", rollbackError)
+            }
         }
     }
 
@@ -134,7 +152,8 @@ class UserLevelHook {
             method.returnType.name == target.returnType &&
                 Modifier.isStatic(method.modifiers) == target.isStatic
         }
-    } catch (_: Throwable) {
+    } catch (error: Throwable) {
+        ThrowablePolicy.rethrowIfFatal(error)
         null
     }
 

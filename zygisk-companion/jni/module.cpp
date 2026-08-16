@@ -15,8 +15,8 @@ namespace {
 constexpr char kTargetProcess[] = "com.maimemo.android.momo";
 constexpr char kLogTag[] = "FreeMOMO.Zygisk";
 constexpr long kTimeoutMilliseconds = 10000;
-constexpr long kFallbackScanMicroseconds = 8000;
 constexpr long kMismatchGraceMicroseconds = 20000;
+constexpr long kPendingPollMicroseconds = 500;
 
 long ElapsedMicroseconds(const timespec& start, const timespec& end) {
     return (end.tv_sec - start.tv_sec) * 1000000L +
@@ -55,7 +55,7 @@ void* MonitorPayload(void*) {
     unsigned int scans = 0;
     unsigned long long previous_pages = 0;
     bool have_previous_pages = false;
-    long last_scan_us = -kFallbackScanMicroseconds;
+    long last_scan_us = -momo_secneo::ForcedScanIntervalMicroseconds(0);
     long first_mismatch_us = -1;
     const int statm = open("/proc/self/statm", O_RDONLY | O_CLOEXEC);
 
@@ -72,8 +72,10 @@ void* MonitorPayload(void*) {
         const bool have_pages = ReadVirtualPages(statm, &pages);
         const bool pages_changed = have_pages && have_previous_pages &&
             pages != previous_pages;
-        const bool should_scan = attempts == 1 || !have_pages || pages_changed ||
-            pending_candidate || elapsed_us - last_scan_us >= kFallbackScanMicroseconds;
+        const long forced_scan_interval_us =
+            momo_secneo::ForcedScanIntervalMicroseconds(elapsed_us);
+        const bool should_scan = attempts == 1 || pages_changed ||
+            pending_candidate || elapsed_us - last_scan_us >= forced_scan_interval_us;
         if (have_pages) {
             previous_pages = pages;
             have_previous_pages = true;
@@ -146,8 +148,9 @@ void* MonitorPayload(void*) {
             return nullptr;
         }
 
-        const long interval_us = elapsed_us < 1000000L ? 500L
-            : (elapsed_us < 3000000L ? 2000L : 10000L);
+        const long interval_us = pending_candidate ? kPendingPollMicroseconds
+            : (elapsed_us < 1000000L ? 500L
+                : (elapsed_us < 3000000L ? 2000L : 10000L));
         SleepFor(interval_us);
     }
 }

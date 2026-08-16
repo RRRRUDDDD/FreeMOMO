@@ -14,9 +14,23 @@ processes request `DLCLOSE_MODULE_LIBRARY` during `preAppSpecialize`. The monito
 The monitor exits after a patch, a write failure, a stable signature mismatch, or 10 seconds.
 Polling backs off from 0.5 ms for the first second, to 2 ms through the third second, then to
 10 ms. High-frequency checks read only `/proc/self/statm`; a virtual-size change triggers an
-immediate maps scan, with an 8 ms forced scan as a fallback. A candidate mismatch is rechecked
-for 20 ms before failing closed. Logs use the tag `FreeMOMO.Zygisk` and distinguish patched,
-already patched, signature mismatch, write failure, and timeout states.
+immediate maps scan. Forced full maps scans run every 8 ms during the first second, every 50 ms
+from one through three seconds, and every 250 ms after that. A candidate mismatch bypasses this
+backoff and is rechecked every 0.5 ms for 20 ms before failing closed. Logs use the tag
+`FreeMOMO.Zygisk` and distinguish patched, already patched, signature mismatch, write failure,
+and timeout states.
+
+Run the Linux host harness with a system `c++`, `g++`, or `clang++`:
+
+```sh
+sh zygisk-companion/test-host.sh
+```
+
+The harness compiles with strict warnings and then executes the real patcher against anonymous
+`rwxp` mappings in its own process. It covers the original and already-patched fingerprints,
+invalid size and ELF inputs, each of the nine signature mismatch points, and scanner miss,
+mismatch, and success paths. A failed check exits nonzero. This host test is separate from the
+Android NDK production build; merely producing a test shared library is not treated as a test.
 
 Build on Windows with the project's NDK 21.4:
 

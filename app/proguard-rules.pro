@@ -20,13 +20,8 @@
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
 
-# Xposed 入口（xposed_init 按类名加载，不能被重命名或移除）
--keep class com.rud.freemomo.MomoHookEntry {
-    *;
+# xposed_init 按类名反射加载入口。只保留加载和接口调用所需成员；其余代码可由 R8 优化。
+-keep,allowoptimization class com.rud.freemomo.MomoHookEntry {
+    public <init>();
+    public void handleLoadPackage(de.robv.android.xposed.callbacks.XC_LoadPackage$LoadPackageParam);
 }
-
-# Hook 类（在入口中直接实例化，保留所有成员）
--keep class com.rud.freemomo.hook.** { *; }
-
-# 缓存工具类
--keep class com.rud.freemomo.util.** { *; }

@@ -76,6 +76,12 @@ bool CheckMapLine(char* line, ScanResult* scan) {
 
 }  // namespace
 
+long ForcedScanIntervalMicroseconds(long elapsed_microseconds) {
+    if (elapsed_microseconds < 1000000L) return 8000L;
+    if (elapsed_microseconds < 3000000L) return 50000L;
+    return 250000L;
+}
+
 PatchResult PatchPayload(uintptr_t base, size_t size) {
     if (base == 0 || size != kPayloadSize) return PatchResult::kSignatureMismatch;
 

@@ -3,34 +3,34 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
-def appVersionName = "3.0"
+def appVersionName = "3.1"
 
 android {
     namespace = "com.rud.freemomo"
-    compileSdk 36
+    compileSdk = 36
 
     buildFeatures {
-        buildConfig true
+        buildConfig = true
     }
 
     defaultConfig {
-        applicationId "com.rud.freemomo"
-        minSdk 28
-        targetSdk 36
-        versionCode 20260814
-        versionName appVersionName
+        applicationId = "com.rud.freemomo"
+        minSdk = 28
+        targetSdk = 36
+        versionCode = 20260816
+        versionName = appVersionName
     }
 
     buildTypes {
         release {
-            minifyEnabled true
-            shrinkResources true
+            minifyEnabled = true
+            shrinkResources = true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
     kotlinOptions {
         jvmTarget = '11'

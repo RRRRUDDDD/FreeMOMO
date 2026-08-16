@@ -85,6 +85,13 @@ data class StructuralDiscoveryResult(
     )
 }
 
+internal data class StructuralDiscoveryDiagnostics(
+    val result: StructuralDiscoveryResult,
+    val indexBuildCount: Int,
+    val normalizedClassCount: Int,
+    val normalizedMethodCount: Int
+)
+
 /** Pure structural matching. Android reflection and Xposed installation live outside this type. */
 object StructuralHookDiscovery {
     private val displayShortParameters = listOf(HookTargets.TEXT_VIEW, HookTargets.INT)
@@ -103,21 +110,37 @@ object StructuralHookDiscovery {
     fun discover(
         classes: List<ClassDescriptor>,
         wordLimitResults: Map<MethodSignature, Number> = emptyMap()
-    ): StructuralDiscoveryResult {
-        var word = discoverWordLimit(classes)
+    ): StructuralDiscoveryResult = discoverWithDiagnostics(classes, wordLimitResults).result
+
+    internal fun discoverWithDiagnostics(
+        classes: List<ClassDescriptor>,
+        wordLimitResults: Map<MethodSignature, Number> = emptyMap()
+    ): StructuralDiscoveryDiagnostics {
+        val index = DiscoveryIndex.from(classes)
+        var word = discoverWordLimit(index)
         word.candidates.forEach { candidate ->
             wordLimitResults[candidate]?.let { result -> word = word.observe(candidate, result) }
         }
-        return StructuralDiscoveryResult(
-            word,
-            discoverDisplay(classes),
-            discoverPrivilege(classes),
-            discoverCloud(classes)
+        val result = StructuralDiscoveryResult(
+            wordLimit = word,
+            display = discoverDisplay(index),
+            privilege = discoverPrivilege(index),
+            cloud = discoverCloud(index)
+        )
+        return StructuralDiscoveryDiagnostics(
+            result = result,
+            indexBuildCount = 1,
+            normalizedClassCount = index.classes.size,
+            normalizedMethodCount = index.classes.sumOf { it.methods.size }
         )
     }
 
-    fun discoverWordLimit(classes: List<ClassDescriptor>): WordLimitDiscovery {
-        val fixedClassMethods = methodsFor(classes, HookTargets.WORD_LIMIT_CLASS)
+    fun discoverWordLimit(
+        classes: List<ClassDescriptor>
+    ): WordLimitDiscovery = discoverWordLimit(DiscoveryIndex.from(classes))
+
+    private fun discoverWordLimit(index: DiscoveryIndex): WordLimitDiscovery {
+        val fixedClassMethods = index.methodsFor(HookTargets.WORD_LIMIT_CLASS)
         if (fixedClassMethods.isEmpty()) {
             return WordLimitDiscovery(DiscoveryStatus.MISSING)
         }
@@ -137,11 +160,15 @@ object StructuralHookDiscovery {
 
     fun discoverDisplay(
         classes: List<ClassDescriptor>
+    ): CapabilityDiscovery<DisplayHookTargets> = discoverDisplay(DiscoveryIndex.from(classes))
+
+    private fun discoverDisplay(
+        index: DiscoveryIndex
     ): CapabilityDiscovery<DisplayHookTargets> {
-        val relevantByClass = normalizedClasses(classes).mapNotNull { descriptor ->
-            val relevant = descriptor.uniqueMethods.filter(::isDisplayRelevant)
+        val relevantByClass = index.classes.mapNotNull { descriptor ->
+            val relevant = descriptor.methods.filter(::isDisplayRelevant)
             relevant.takeIf { it.isNotEmpty() }?.let {
-                Triple(descriptor.className, descriptor.uniqueMethods, relevant)
+                Triple(descriptor.className, descriptor.methods, relevant)
             }
         }
         if (relevantByClass.isEmpty()) return CapabilityDiscovery(DiscoveryStatus.MISSING)
@@ -178,12 +205,15 @@ object StructuralHookDiscovery {
 
     fun discoverPrivilege(
         classes: List<ClassDescriptor>
-    ): CapabilityDiscovery<PrivilegeHookTargets> {
-        val descriptors = normalizedClasses(classes)
-            .filter { it.className == HookTargets.PRIVILEGE_CLASS }
-        if (descriptors.isEmpty()) return CapabilityDiscovery(DiscoveryStatus.MISSING)
+    ): CapabilityDiscovery<PrivilegeHookTargets> =
+        discoverPrivilege(DiscoveryIndex.from(classes))
 
-        val methods = descriptors.flatMap { it.uniqueMethods }.distinct()
+    private fun discoverPrivilege(
+        index: DiscoveryIndex
+    ): CapabilityDiscovery<PrivilegeHookTargets> {
+        val methods = index.methodsFor(HookTargets.PRIVILEGE_CLASS)
+        if (methods.isEmpty()) return CapabilityDiscovery(DiscoveryStatus.MISSING)
+
         val relevant = methods.filter(::isPrivilegeRelevant)
         val singles = relevant.filter {
             it.isExact(privilegeSingleParameters, HookTargets.BOOLEAN)
@@ -207,13 +237,17 @@ object StructuralHookDiscovery {
 
     fun discoverCloud(
         classes: List<ClassDescriptor>
+    ): CapabilityDiscovery<MethodSignature> = discoverCloud(DiscoveryIndex.from(classes))
+
+    private fun discoverCloud(
+        index: DiscoveryIndex
     ): CapabilityDiscovery<MethodSignature> {
-        val relevantByClass = normalizedClasses(classes)
+        val relevantByClass = index.classes
             .filter { '.' !in it.className && '$' !in it.className }
             .mapNotNull { descriptor ->
-                val relevant = descriptor.uniqueMethods.filter(::isCloudRelevant)
+                val relevant = descriptor.methods.filter(::isCloudRelevant)
                 relevant.takeIf { it.isNotEmpty() }?.let {
-                    Triple(descriptor.className, descriptor.uniqueMethods, relevant)
+                    Triple(descriptor.className, descriptor.methods, relevant)
                 }
             }
         if (relevantByClass.isEmpty()) return CapabilityDiscovery(DiscoveryStatus.MISSING)
@@ -253,18 +287,37 @@ object StructuralHookDiscovery {
         }
     }
 
-    private fun normalizedClasses(classes: List<ClassDescriptor>): List<ClassDescriptor> =
-        classes.groupBy { it.className }.map { (className, descriptors) ->
-            ClassDescriptor(className, descriptors.flatMap { it.uniqueMethods }.distinct())
-        }
+    private class DiscoveryIndex private constructor(
+        val classes: List<IndexedClass>,
+        private val methodsByClass: Map<String, List<MethodSignature>>
+    ) {
+        fun methodsFor(className: String): List<MethodSignature> =
+            methodsByClass[className].orEmpty()
 
-    private fun methodsFor(
-        classes: List<ClassDescriptor>,
-        className: String
-    ): List<MethodSignature> = normalizedClasses(classes)
-        .firstOrNull { it.className == className }
-        ?.uniqueMethods
-        .orEmpty()
+        companion object {
+            fun from(classes: List<ClassDescriptor>): DiscoveryIndex {
+                val methodsByClass = linkedMapOf<String, MutableSet<MethodSignature>>()
+                classes.forEach { descriptor ->
+                    methodsByClass.getOrPut(descriptor.className, ::linkedSetOf)
+                        .addAll(descriptor.methods)
+                }
+                val normalized = methodsByClass.map { (className, methods) ->
+                    IndexedClass(className, methods.toList())
+                }
+                return DiscoveryIndex(
+                    classes = normalized,
+                    methodsByClass = normalized.associate { descriptor ->
+                        descriptor.className to descriptor.methods
+                    }
+                )
+            }
+        }
+    }
+
+    private data class IndexedClass(
+        val className: String,
+        val methods: List<MethodSignature>
+    )
 
     private fun isWordLimitShape(method: MethodSignature): Boolean =
         method.className == HookTargets.WORD_LIMIT_CLASS &&

@@ -1,6 +1,7 @@
 package com.rud.freemomo.hook
 
 import com.rud.freemomo.util.Logger
+import com.rud.freemomo.util.ThrowablePolicy
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
@@ -26,6 +27,7 @@ class SecNeoEarlyHook {
         val helperClass = try {
             XposedHelpers.findClass(SecNeoHookPolicy.HELPER_CLASS, classLoader)
         } catch (error: Throwable) {
+            ThrowablePolicy.rethrowIfFatal(error)
             XposedBridge.log("FreeMOMO: SecNeo 壳类尚不可用 - ${error.message}")
             return
         }
@@ -45,9 +47,11 @@ class SecNeoEarlyHook {
                     try {
                         unhook.unhook()
                     } catch (rollbackError: Throwable) {
+                        ThrowablePolicy.rethrowIfFatal(rollbackError)
                         Logger.error("SecNeo early hook rollback failed", rollbackError)
                     }
                 }
+                ThrowablePolicy.rethrowIfFatal(error)
                 Logger.error("SecNeo early hook group install rejected", error)
             }
         }

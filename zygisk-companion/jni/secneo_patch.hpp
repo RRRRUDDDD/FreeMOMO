@@ -24,6 +24,7 @@ struct ScanResult {
     unsigned int candidates;
 };
 
+long ForcedScanIntervalMicroseconds(long elapsed_microseconds);
 PatchResult PatchPayload(uintptr_t base, size_t size);
 ScanResult ScanAndPatchSelf();
 

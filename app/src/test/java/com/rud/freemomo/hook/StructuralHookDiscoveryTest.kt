@@ -272,6 +272,23 @@ class StructuralHookDiscoveryTest {
         }
     }
 
+    @Test
+    fun `full discovery builds one normalized index shared by all capabilities`() {
+        val fixture = fixtureFor(898)
+        val run = StructuralHookDiscovery.discoverWithDiagnostics(
+            fixture.classes + fixture.classes.first(),
+            fixture.wordLimitResults
+        )
+
+        assertEquals(1, run.indexBuildCount)
+        assertEquals(fixture.classes.size, run.normalizedClassCount)
+        assertEquals(
+            fixture.classes.sumOf { it.uniqueMethods.size },
+            run.normalizedMethodCount
+        )
+        assertEquals(HookTargets.builtIn(898), run.result.targets)
+    }
+
     private data class Fixture(
         val classes: List<ClassDescriptor>,
         val wordLimitResults: Map<MethodSignature, Int>

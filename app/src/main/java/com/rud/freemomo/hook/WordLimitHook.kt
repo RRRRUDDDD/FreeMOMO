@@ -3,6 +3,7 @@ package com.rud.freemomo.hook
 import com.rud.freemomo.BuildConfig
 import com.rud.freemomo.util.HookCache
 import com.rud.freemomo.util.Logger
+import com.rud.freemomo.util.ThrowablePolicy
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import java.lang.reflect.Method
@@ -36,6 +37,7 @@ class WordLimitHook {
             XposedBridge.log("FreeMOMO: word-limit $source installed -> ${target.displayName}")
             true
         } catch (error: Throwable) {
+            ThrowablePolicy.rethrowIfFatal(error)
             Logger.error("word-limit $source install rejected: ${target.displayName}", error)
             false
         }
@@ -45,8 +47,8 @@ class WordLimitHook {
     fun observe(
         initial: WordLimitDiscovery,
         classLoader: ClassLoader,
-        onDiscovered: (MethodSignature) -> Unit,
-        onAmbiguous: (List<MethodSignature>) -> Unit
+        onDiscovered: (WordLimitDiscovery) -> Unit,
+        onAmbiguous: (WordLimitDiscovery) -> Unit
     ): Boolean {
         if (initial.status != DiscoveryStatus.PENDING || initial.candidates.isEmpty()) return false
         val resolved = initial.candidates.map { signature ->
@@ -76,12 +78,12 @@ class WordLimitHook {
                             if (previous.status != DiscoveryStatus.DISCOVERED &&
                                 updated.status == DiscoveryStatus.DISCOVERED
                             ) {
-                                onDiscovered(requireNotNull(updated.target))
+                                onDiscovered(updated)
                             }
                             if (previous.status != DiscoveryStatus.AMBIGUOUS &&
                                 updated.status == DiscoveryStatus.AMBIGUOUS
                             ) {
-                                onAmbiguous(updated.conflicts)
+                                onAmbiguous(updated)
                             }
                             updated
                         }
@@ -99,9 +101,21 @@ class WordLimitHook {
             )
             true
         } catch (error: Throwable) {
-            unhooks.forEach { it.unhook() }
+            rollback(unhooks)
+            ThrowablePolicy.rethrowIfFatal(error)
             Logger.error("word-limit observer install rejected", error)
             false
+        }
+    }
+
+    private fun rollback(unhooks: List<XC_MethodHook.Unhook>) {
+        unhooks.asReversed().forEach { unhook ->
+            try {
+                unhook.unhook()
+            } catch (rollbackError: Throwable) {
+                ThrowablePolicy.rethrowIfFatal(rollbackError)
+                Logger.error("word-limit observer rollback failed", rollbackError)
+            }
         }
     }
 
@@ -117,7 +131,8 @@ class WordLimitHook {
             method.returnType.name == target.returnType &&
                 Modifier.isStatic(method.modifiers) == target.isStatic
         }
-    } catch (_: Throwable) {
+    } catch (error: Throwable) {
+        ThrowablePolicy.rethrowIfFatal(error)
         null
     }
 

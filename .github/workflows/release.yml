@@ -8,15 +8,20 @@ on:
       - '20*'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: freemomo-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  release:
+  build:
     runs-on: windows-latest
+    permissions:
+      contents: read
+    outputs:
+      app_version: ${{ steps.release_metadata.outputs.app_version }}
+      app_version_code: ${{ steps.release_metadata.outputs.app_version_code }}
     env:
       EXPECTED_SIGNER_SHA256: 195835624B54A0CAA2F65225E6C087DC6FA9F5712B3AC371B9FF01466E1328B6
       ANDROID_BUILD_TOOLS: 36.1.0
@@ -72,11 +77,12 @@ jobs:
           }
 
       - name: Extract release metadata
+        id: release_metadata
         shell: pwsh
         run: |
           $gradle = Get-Content -LiteralPath 'app/build.gradle' -Raw
           $versionMatch = [regex]::Match($gradle, 'def\s+appVersionName\s*=\s*"([^"]+)"')
-          $codeMatch = [regex]::Match($gradle, 'versionCode\s+(\d+)')
+          $codeMatch = [regex]::Match($gradle, 'versionCode\s*=\s*(\d+)')
           if (-not $versionMatch.Success -or -not $codeMatch.Success) {
             throw 'Unable to read release version metadata'
           }
@@ -93,8 +99,13 @@ jobs:
             "APP_VERSION_CODE=$versionCode"
           )
           [IO.File]::AppendAllText($env:GITHUB_ENV, (($lines -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+          $outputs = @(
+            "app_version=$appVersion",
+            "app_version_code=$versionCode"
+          )
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, (($outputs -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
 
-      - name: Run host tests, lint, and Android builds
+      - name: Run unit tests, lint, and Android builds
         shell: pwsh
         run: |
           .\gradlew.bat testDebugUnitTest lintDebug assembleDebug assembleRelease --no-daemon --console=plain
@@ -194,22 +205,14 @@ jobs:
           Copy-Item -LiteralPath $zygisk[0].FullName -Destination $zygiskPath -Force
           [IO.File]::AppendAllText($env:GITHUB_ENV, "ZYGISK_ZIP_PATH=$zygiskPath`n", [Text.UTF8Encoding]::new($false))
 
-      - name: Create GitHub Release for tag
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create $env:GITHUB_REF_NAME `
-            --repo $env:GITHUB_REPOSITORY `
-            --verify-tag `
-            --title "FreeMOMO $env:APP_VERSION" `
-            --generate-notes `
-            $env:SIGNED_APK_PATH `
-            $env:ZYGISK_ZIP_PATH
-          if ($LASTEXITCODE -ne 0) {
-            throw "GitHub Release creation failed with exit code $LASTEXITCODE"
-          }
+      - name: Upload signed release assets
+        # actions/upload-artifact v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: freemomo-release-assets
+          path: build/release/
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Remove decoded keystore
         if: always()
@@ -219,3 +222,33 @@ jobs:
           if (Test-Path -LiteralPath $keystorePath) {
             Remove-Item -LiteralPath $keystorePath -Force
           }
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download signed release assets
+        # actions/download-artifact v4.3.0
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: freemomo-release-assets
+          path: build/release
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_VERSION: ${{ needs.build.outputs.app_version }}
+        run: |
+          test -f build/release/freemomo.apk
+          test -f build/release/freemomo-zygisk.zip
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "FreeMOMO $APP_VERSION" \
+            --generate-notes \
+            build/release/freemomo.apk \
+            build/release/freemomo-zygisk.zip

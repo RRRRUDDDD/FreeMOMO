@@ -130,11 +130,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $productionLibrary = Join-Path $libraryDirectory 'arm64-v8a/libmomo_zygisk.so'
-$testLibrary = Join-Path $libraryDirectory 'arm64-v8a/libmomo_secneo_test.so'
-foreach ($requiredOutput in @($productionLibrary, $testLibrary)) {
-    if (-not (Test-Path -LiteralPath $requiredOutput -PathType Leaf)) {
-        throw "Expected native output was not produced: $requiredOutput"
-    }
+if (-not (Test-Path -LiteralPath $productionLibrary -PathType Leaf)) {
+    throw "Expected native output was not produced: $productionLibrary"
 }
 
 $moduleProperty = Join-Path $moduleDirectory 'module.prop'
