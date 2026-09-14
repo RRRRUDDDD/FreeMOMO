@@ -1,8 +1,16 @@
 package com.rud.freemomo.util
 
 import com.rud.freemomo.hook.CapabilityDiscovery
+import com.rud.freemomo.hook.CapabilityScanMetadata
+import com.rud.freemomo.hook.ClassDescriptor
+import com.rud.freemomo.hook.ClassInventory
+import com.rud.freemomo.hook.DiscoveryRetryPolicy
+import com.rud.freemomo.hook.DiscoveryScanner
 import com.rud.freemomo.hook.DiscoveryStatus
+import com.rud.freemomo.hook.DiscoveryTrigger
+import com.rud.freemomo.hook.HookCapability
 import com.rud.freemomo.hook.HookTargets
+import com.rud.freemomo.hook.ScanRetryReason
 import com.rud.freemomo.hook.WordLimitDiscovery
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -14,7 +22,7 @@ class HookCacheTest {
 
     @Test
     fun `all known signatures round trip without losing declaration order`() {
-        listOf(893, 898).forEach { versionCode ->
+        listOf(893, 898, 900).forEach { versionCode ->
             val targets = requireNotNull(HookTargets.builtIn(versionCode))
             assertEquals(
                 targets,
@@ -137,7 +145,8 @@ class HookCacheTest {
             ),
             display = CapabilityDiscovery(DiscoveryStatus.MISSING),
             privilege = CapabilityDiscovery(DiscoveryStatus.REJECTED),
-            cloud = CapabilityDiscovery(DiscoveryStatus.AMBIGUOUS)
+            cloud = CapabilityDiscovery(DiscoveryStatus.AMBIGUOUS),
+            scanMetadata = HookCapability.entries.associateWith { CapabilityScanMetadata(true) }
         )
 
         val decoded = requireNotNull(
@@ -220,5 +229,83 @@ class HookCacheTest {
         )
 
         assertEquals(snapshot, snapshot.reconcileInstall(HookTargets(), HookTargets()))
+    }
+
+    @Test
+    fun `schema three negative cache is invalidated once and schema four preserves retry evidence`() {
+        val legacy = HookCache.encode(DiscoverySnapshot(
+            wordLimit = WordLimitDiscovery(DiscoveryStatus.MISSING),
+            display = CapabilityDiscovery(DiscoveryStatus.MISSING),
+            privilege = CapabilityDiscovery(DiscoveryStatus.REJECTED),
+            cloud = CapabilityDiscovery(DiscoveryStatus.AMBIGUOUS),
+            scanMetadata = HookCapability.entries.associateWith { CapabilityScanMetadata(true) }
+        ), 899) + ("structural_schema" to "3")
+        assertNull(HookCache.decode(legacy, 899))
+        val inventory = ClassInventory(listOf("temporarilyUnreadable"), "same", false)
+        val first = DiscoverySnapshot().fillUnknown(DiscoveryScanner {
+            throw ClassNotFoundException(it)
+        }.scan(HookCapability.entries.toSet(), inventory))
+        val encoded = HookCache.encode(first, 899)
+        assertEquals("4", encoded["structural_schema"])
+        val restored = requireNotNull(HookCache.decode(encoded, 899))
+        assertEquals(first, restored)
+        assertTrue(restored.requiresStructuralScan)
+        assertTrue(DiscoveryRetryPolicy().select(
+            DiscoveryTrigger.ATTACH, restored, emptySet(), inventory
+        ).isEmpty())
+    }
+
+    @Test
+    fun `incomplete states and incomplete global enumeration cannot supply cache targets`() {
+        val known = requireNotNull(HookTargets.builtIn(898))
+        val snapshot = DiscoverySnapshot.fromTargets(known).copy(scanMetadata = mapOf(
+            HookCapability.WORD_LIMIT to CapabilityScanMetadata(true),
+            HookCapability.DISPLAY to CapabilityScanMetadata(false,
+                failedClasses = setOf("hiddenPeer"), retryReason = ScanRetryReason.REFLECTION),
+            HookCapability.PRIVILEGE to CapabilityScanMetadata(true),
+            HookCapability.CLOUD to CapabilityScanMetadata(true, enumerationComplete = false)
+        ))
+        val decoded = requireNotNull(HookCache.decode(HookCache.encode(snapshot, 899), 899))
+        assertNull(decoded.display)
+        assertNull(decoded.cloud)
+        assertEquals(known.wordLimit, decoded.targets.wordLimit)
+        assertEquals(known.privilege, decoded.targets.privilege)
+    }
+
+    @Test
+    fun `corrupt completeness metadata invalidates only the affected cache capability`() {
+        val known = requireNotNull(HookTargets.builtIn(898))
+        val encoded = HookCache.encode(known, 899)
+        val corrupt = encoded + ("display.scan.complete" to "not-a-boolean")
+        val decoded = requireNotNull(HookCache.decode(corrupt, 899))
+        assertNull(decoded.display)
+        assertEquals(known.wordLimit, decoded.targets.wordLimit)
+        assertEquals(known.privilege, decoded.targets.privilege)
+        assertEquals(known.cloud, decoded.targets.cloud)
+    }
+
+    @Test
+    fun `negative results without complete evidence return to unknown`() {
+        val snapshot = DiscoverySnapshot(
+            wordLimit = WordLimitDiscovery(DiscoveryStatus.MISSING),
+            display = CapabilityDiscovery(DiscoveryStatus.REJECTED),
+            privilege = CapabilityDiscovery(DiscoveryStatus.MISSING),
+            cloud = CapabilityDiscovery(DiscoveryStatus.AMBIGUOUS)
+        )
+        val decoded = requireNotNull(HookCache.decode(HookCache.encode(snapshot, 899), 899))
+        assertEquals(HookCapability.entries.toSet(), decoded.unknownCapabilities)
+    }
+
+    @Test
+    fun `complete negative survives restart until the Dex inventory changes`() {
+        val inventory = ClassInventory(listOf("empty"), "first", true)
+        val scan = DiscoveryScanner { ClassDescriptor(it, emptyList()) }.scan(
+            setOf(HookCapability.DISPLAY), inventory
+        )
+        val snapshot = DiscoverySnapshot().fillUnknown(scan)
+        val restored = requireNotNull(HookCache.decode(HookCache.encode(snapshot, 899), 899))
+        assertEquals(DiscoveryStatus.MISSING, restored.display?.status)
+        assertEquals(snapshot, restored.forInventory("first"))
+        assertNull(restored.forInventory("second").display)
     }
 }

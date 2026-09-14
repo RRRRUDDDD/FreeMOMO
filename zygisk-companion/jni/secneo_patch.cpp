@@ -61,20 +61,41 @@ bool IsPayloadMapLine(char* line, uintptr_t* base) {
     return true;
 }
 
-bool CheckMapLine(char* line, ScanResult* scan) {
+bool CollectMapLine(char* line, ScanResult* scan) {
     uintptr_t base = 0;
-    if (!IsPayloadMapLine(line, &base)) return false;
-
-    ++scan->candidates;
-    const PatchResult result = PatchPayload(base, kPayloadSize);
-    scan->result = result;
-    scan->base = base;
-    return result == PatchResult::kPatched ||
-        result == PatchResult::kAlreadyPatched ||
-        result == PatchResult::kWriteFailed;
+    if (!IsPayloadMapLine(line, &base)) return true;
+    if (scan->candidates.Add(base)) return true;
+    scan->result = PatchResult::kCandidateOverflow;
+    return false;
 }
 
 }  // namespace
+
+bool CandidateSet::Add(uintptr_t base) {
+    if (count > kMaxPayloadCandidates) return false;
+    for (unsigned int index = 0; index < count; ++index) {
+        if (bases[index] == base) return true;
+    }
+    if (count == kMaxPayloadCandidates) return false;
+    bases[count++] = base;
+    return true;
+}
+
+bool CandidateSet::Equals(const CandidateSet& other) const {
+    if (count != other.count || count > kMaxPayloadCandidates) return false;
+    // /proc maps is normally ordered, but identity must not depend on that order.
+    for (unsigned int index = 0; index < count; ++index) {
+        bool found = false;
+        for (unsigned int other_index = 0; other_index < other.count; ++other_index) {
+            if (bases[index] == other.bases[other_index]) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) return false;
+    }
+    return true;
+}
 
 long ForcedScanIntervalMicroseconds(long elapsed_microseconds) {
     if (elapsed_microseconds < 1000000L) return 8000L;
@@ -115,19 +136,25 @@ PatchResult PatchPayload(uintptr_t base, size_t size) {
 }
 
 ScanResult ScanAndPatchSelf() {
+    ScanResult scan;
     const int maps = open("/proc/self/maps", O_RDONLY | O_CLOEXEC);
-    if (maps < 0) return {PatchResult::kNotFound, 0, 0};
+    if (maps < 0) {
+        scan.result = PatchResult::kScanFailed;
+        return scan;
+    }
 
-    ScanResult scan = {PatchResult::kNotFound, 0, 0};
     char buffer[32768];
     size_t used = 0;
-    bool finished = false;
-    while (!finished) {
-        ssize_t bytes = read(maps, buffer + used, sizeof(buffer) - used - 1);
+    while (true) {
+        const ssize_t bytes = read(maps, buffer + used, sizeof(buffer) - used - 1);
         if (bytes < 0 && errno == EINTR) continue;
-        if (bytes <= 0) finished = true;
+        if (bytes < 0) {
+            scan.result = PatchResult::kScanFailed;
+            close(maps);
+            return scan;
+        }
 
-        const size_t available = used + (bytes > 0 ? static_cast<size_t>(bytes) : 0);
+        const size_t available = used + static_cast<size_t>(bytes);
         buffer[available] = '\0';
         char* cursor = buffer;
         char* end = buffer + available;
@@ -135,7 +162,7 @@ ScanResult ScanAndPatchSelf() {
             char* newline = static_cast<char*>(memchr(cursor, '\n', end - cursor));
             if (newline == nullptr) break;
             *newline = '\0';
-            if (CheckMapLine(cursor, &scan)) {
+            if (!CollectMapLine(cursor, &scan)) {
                 close(maps);
                 return scan;
             }
@@ -143,19 +170,32 @@ ScanResult ScanAndPatchSelf() {
         }
 
         used = static_cast<size_t>(end - cursor);
+        if (bytes == 0) {
+            if (used > 0 && !CollectMapLine(cursor, &scan)) {
+                close(maps);
+                return scan;
+            }
+            break;
+        }
         if (used == sizeof(buffer) - 1) {
-            used = 0;
-        } else if (used > 0 && cursor != buffer) {
+            // A truncated line cannot establish a complete candidate set.
+            scan.result = PatchResult::kScanFailed;
+            close(maps);
+            return scan;
+        }
+        if (used > 0 && cursor != buffer) {
             memmove(buffer, cursor, used);
         }
     }
 
-    if (used > 0) {
-        buffer[used] = '\0';
-        CheckMapLine(buffer, &scan);
-    }
-
     close(maps);
+    // Collect the entire bounded set before any write, including on success.
+    // This snapshot does not pin VMAs; concurrent unmap/protection changes remain unsafe.
+    for (unsigned int index = 0; index < scan.candidates.count; ++index) {
+        scan.base = scan.candidates.bases[index];
+        scan.result = PatchPayload(scan.base, kPayloadSize);
+        if (scan.result != PatchResult::kSignatureMismatch) break;
+    }
     return scan;
 }
 

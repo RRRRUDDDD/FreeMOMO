@@ -1,25 +1,21 @@
 package com.rud.freemomo.hook
 
 import com.rud.freemomo.BuildConfig
-import com.rud.freemomo.util.HookCache
 import com.rud.freemomo.util.Logger
 import com.rud.freemomo.util.ThrowablePolicy
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
-import java.lang.reflect.Method
-import java.lang.reflect.Modifier
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 
 class WordLimitHook {
 
     fun apply(target: MethodSignature, classLoader: ClassLoader, source: String): Boolean {
-        if (!isWordLimitTarget(target)) {
+        if (!HookSignatures.isWord(target)) {
             XposedBridge.log("FreeMOMO: word-limit $source rejected -> ${target.displayName}")
             return false
         }
         return try {
-            val method = resolveMethod(target, classLoader)
+            val method = HookSignatures.resolve(target, classLoader)
                 ?: throw NoSuchMethodException(target.displayName)
             val firstHitLogged = AtomicBoolean(false)
             XposedBridge.hookMethod(method, object : XC_MethodHook() {
@@ -47,98 +43,34 @@ class WordLimitHook {
     fun observe(
         initial: WordLimitDiscovery,
         classLoader: ClassLoader,
-        onDiscovered: (WordLimitDiscovery) -> Unit,
-        onAmbiguous: (WordLimitDiscovery) -> Unit
+        group: WordObserverGroup
     ): Boolean {
         if (initial.status != DiscoveryStatus.PENDING || initial.candidates.isEmpty()) return false
-        val resolved = initial.candidates.map { signature ->
-            signature to (resolveMethod(signature, classLoader) ?: return false)
-        }
-        val state = AtomicReference(initial)
-        val lock = Any()
-        val firstResults = resolved.associate { it.first to AtomicBoolean(false) }
-        val unhooks = mutableListOf<XC_MethodHook.Unhook>()
-        return try {
-            resolved.forEach { (signature, method) ->
-                unhooks += XposedBridge.hookMethod(method, object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        val original = param.result as? Int ?: return
-                        if (BuildConfig.DEBUG && firstResults.getValue(signature)
-                                .compareAndSet(false, true)
-                        ) {
-                            XposedBridge.log(
-                                "FreeMOMO: word-limit observer first result -> " +
-                                    "${signature.displayName} = $original"
-                            )
-                        }
-                        val next = synchronized(lock) {
-                            val previous = state.get()
-                            val updated = previous.observe(signature, original)
-                            state.set(updated)
-                            if (previous.status != DiscoveryStatus.DISCOVERED &&
-                                updated.status == DiscoveryStatus.DISCOVERED
-                            ) {
-                                onDiscovered(updated)
-                            }
-                            if (previous.status != DiscoveryStatus.AMBIGUOUS &&
-                                updated.status == DiscoveryStatus.AMBIGUOUS
-                            ) {
-                                onAmbiguous(updated)
-                            }
-                            updated
-                        }
-                        if (next.status == DiscoveryStatus.DISCOVERED &&
-                            next.target == signature
-                        ) {
-                            param.result = HookDiscoveryPolicy.WORD_LIMIT_REPLACEMENT
-                        }
+        if (initial.candidates.any { !HookSignatures.isWord(it) }) return false
+        val methods = HookSignatures.resolveAll(initial.candidates, classLoader) ?: return false
+        val resolved = initial.candidates.zip(methods).toMap()
+        val installed = group.install(initial.candidates) { signature, observer ->
+            val firstResult = AtomicBoolean(false)
+            val unhook = XposedBridge.hookMethod(resolved.getValue(signature), object : XC_MethodHook() {
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    val original = param.result as? Int ?: return
+                    if (BuildConfig.DEBUG && firstResult.compareAndSet(false, true)) {
+                        XposedBridge.log(
+                            "FreeMOMO: word-limit observer first result -> " +
+                                "${signature.displayName} = $original"
+                        )
                     }
-                })
-            }
+                    observer(original) { replacement -> param.result = replacement }
+                }
+            })
+            HookUnhook { unhook.unhook() }
+        }
+        if (installed) {
             XposedBridge.log(
                 "FreeMOMO: word-limit pending observers installed -> " +
                     initial.candidates.joinToString { it.displayName }
             )
-            true
-        } catch (error: Throwable) {
-            rollback(unhooks)
-            ThrowablePolicy.rethrowIfFatal(error)
-            Logger.error("word-limit observer install rejected", error)
-            false
         }
+        return installed
     }
-
-    private fun rollback(unhooks: List<XC_MethodHook.Unhook>) {
-        unhooks.asReversed().forEach { unhook ->
-            try {
-                unhook.unhook()
-            } catch (rollbackError: Throwable) {
-                ThrowablePolicy.rethrowIfFatal(rollbackError)
-                Logger.error("word-limit observer rollback failed", rollbackError)
-            }
-        }
-    }
-
-    private fun resolveMethod(
-        target: MethodSignature,
-        classLoader: ClassLoader
-    ): Method? = try {
-        val cls = Class.forName(target.className, false, classLoader)
-        val parameters = target.parameterTypes.map {
-            HookCache.resolveType(it, classLoader)
-        }.toTypedArray()
-        cls.getDeclaredMethod(target.methodName, *parameters).takeIf { method ->
-            method.returnType.name == target.returnType &&
-                Modifier.isStatic(method.modifiers) == target.isStatic
-        }
-    } catch (error: Throwable) {
-        ThrowablePolicy.rethrowIfFatal(error)
-        null
-    }
-
-    private fun isWordLimitTarget(target: MethodSignature): Boolean =
-        target.className == HookTargets.WORD_LIMIT_CLASS &&
-            target.parameterTypes.isEmpty() &&
-            target.returnType == HookTargets.INT &&
-            target.isStatic
 }

@@ -1,4 +1,4 @@
-#include "secneo_patch.hpp"
+#include "monitor_policy.hpp"
 #include "zygisk.hpp"
 
 #include <android/log.h>
@@ -14,19 +14,18 @@ namespace {
 
 constexpr char kTargetProcess[] = "com.maimemo.android.momo";
 constexpr char kLogTag[] = "FreeMOMO.Zygisk";
-constexpr long kTimeoutMilliseconds = 10000;
-constexpr long kMismatchGraceMicroseconds = 20000;
-constexpr long kPendingPollMicroseconds = 500;
 
-long ElapsedMicroseconds(const timespec& start, const timespec& end) {
-    return (end.tv_sec - start.tv_sec) * 1000000L +
-        (end.tv_nsec - start.tv_nsec) / 1000L;
+bool ReadMonotonicMicroseconds(int64_t* microseconds) {
+    timespec now = {};
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return false;
+    *microseconds = static_cast<int64_t>(now.tv_sec) * 1000000 + now.tv_nsec / 1000;
+    return true;
 }
 
 void SleepFor(long microseconds) {
     timespec duration = {microseconds / 1000000L,
                          (microseconds % 1000000L) * 1000L};
-    while (nanosleep(&duration, &duration) != 0) {}
+    while (nanosleep(&duration, &duration) != 0 && errno == EINTR) {}
 }
 
 bool ReadVirtualPages(int statm, unsigned long long* pages) {
@@ -46,113 +45,109 @@ bool ReadVirtualPages(int statm, unsigned long long* pages) {
 }
 
 void* MonitorPayload(void*) {
-    timespec started = {};
-    clock_gettime(CLOCK_MONOTONIC, &started);
-    bool saw_mismatch = false;
-    bool pending_candidate = false;
-    unsigned int mismatch_candidates = 0;
+    const long page_size = sysconf(_SC_PAGESIZE);
+    int64_t started_at_us = 0;
+    if (!ReadMonotonicMicroseconds(&started_at_us)) {
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                            "SecNeo monotonic clock unavailable pid=%d", getpid());
+        return nullptr;
+    }
+    momo_secneo::MonitorPolicy monitor(page_size, started_at_us);
+    if (monitor.status() == momo_secneo::MonitorStatus::kUnsupportedPageSize) {
+        __android_log_print(
+            ANDROID_LOG_WARN, kLogTag,
+            "SecNeo unsupported page size; no scan or patch attempted pid=%d page_size=%ld required=%ld",
+            getpid(), page_size, momo_secneo::kSupportedPageSize);
+        return nullptr;
+    }
+
     unsigned int attempts = 0;
-    unsigned int scans = 0;
     unsigned long long previous_pages = 0;
     bool have_previous_pages = false;
-    long last_scan_us = -momo_secneo::ForcedScanIntervalMicroseconds(0);
-    long first_mismatch_us = -1;
+    momo_secneo::ScanResult scan;
     const int statm = open("/proc/self/statm", O_RDONLY | O_CLOEXEC);
+    int64_t now_us = started_at_us;
 
     __android_log_print(ANDROID_LOG_INFO, kLogTag,
-                        "SecNeo monitor started pid=%d timeout_ms=%ld",
-                        getpid(), kTimeoutMilliseconds);
+                        "SecNeo monitor started pid=%d timeout_ms=%ld page_size=%ld capacity=%u",
+                        getpid(), static_cast<long>(momo_secneo::kMonitorTimeoutMicroseconds / 1000),
+                        page_size, momo_secneo::kMaxPayloadCandidates);
 
     while (true) {
         ++attempts;
-        timespec now = {};
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        const long elapsed_us = ElapsedMicroseconds(started, now);
         unsigned long long pages = 0;
         const bool have_pages = ReadVirtualPages(statm, &pages);
         const bool pages_changed = have_pages && have_previous_pages &&
             pages != previous_pages;
-        const long forced_scan_interval_us =
-            momo_secneo::ForcedScanIntervalMicroseconds(elapsed_us);
-        const bool should_scan = attempts == 1 || pages_changed ||
-            pending_candidate || elapsed_us - last_scan_us >= forced_scan_interval_us;
+        if (!ReadMonotonicMicroseconds(&now_us)) {
+            __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                                "SecNeo monotonic clock failed; monitor stopped pid=%d", getpid());
+            if (statm >= 0) close(statm);
+            return nullptr;
+        }
+        const bool should_scan = monitor.ShouldScan(now_us, pages_changed);
         if (have_pages) {
             previous_pages = pages;
             have_previous_pages = true;
         }
 
-        momo_secneo::ScanResult scan = {
-            momo_secneo::PatchResult::kNotFound, 0, 0};
         if (should_scan) {
             scan = momo_secneo::ScanAndPatchSelf();
-            ++scans;
-            last_scan_us = elapsed_us;
+            // The deadline is checked before scanning. A scan's start time is
+            // the observation timestamp; skipped polls never supply a scan.
+            monitor.ObserveScan(now_us, scan);
         }
 
-        if (scan.result == momo_secneo::PatchResult::kPatched) {
-            __android_log_print(
-                ANDROID_LOG_INFO, kLogTag,
-                "SecNeo maps branch patched pid=%d base=0x%lx offset=0x%lx attempts=%u scans=%u elapsed_us=%ld",
-                getpid(), static_cast<unsigned long>(scan.base),
-                static_cast<unsigned long>(momo_secneo::kPatchOffset),
-                attempts, scans, elapsed_us);
-            close(statm);
+        if (monitor.status() != momo_secneo::MonitorStatus::kRunning) break;
+        if (!ReadMonotonicMicroseconds(&now_us)) {
+            __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                                "SecNeo monotonic clock failed; monitor stopped pid=%d", getpid());
+            if (statm >= 0) close(statm);
             return nullptr;
         }
-        if (scan.result == momo_secneo::PatchResult::kAlreadyPatched) {
-            __android_log_print(
-                ANDROID_LOG_INFO, kLogTag,
-                "SecNeo maps branch already patched pid=%d base=0x%lx attempts=%u scans=%u elapsed_us=%ld",
-                getpid(), static_cast<unsigned long>(scan.base), attempts, scans, elapsed_us);
-            close(statm);
-            return nullptr;
-        }
-        if (scan.result == momo_secneo::PatchResult::kWriteFailed) {
-            __android_log_print(
-                ANDROID_LOG_ERROR, kLogTag,
-                "SecNeo maps branch write verification failed pid=%d base=0x%lx attempts=%u scans=%u elapsed_us=%ld",
-                getpid(), static_cast<unsigned long>(scan.base), attempts, scans, elapsed_us);
-            close(statm);
-            return nullptr;
-        }
-        if (scan.result == momo_secneo::PatchResult::kSignatureMismatch) {
-            saw_mismatch = true;
-            pending_candidate = true;
-            mismatch_candidates += scan.candidates;
-            if (first_mismatch_us < 0) first_mismatch_us = elapsed_us;
-            if (elapsed_us - first_mismatch_us >= kMismatchGraceMicroseconds) {
-                __android_log_print(
-                    ANDROID_LOG_WARN, kLogTag,
-                    "SecNeo payload signature mismatch; no patch applied pid=%d observations=%u attempts=%u scans=%u elapsed_ms=%ld",
-                    getpid(), mismatch_candidates, attempts, scans, elapsed_us / 1000L);
-                close(statm);
-                return nullptr;
-            }
-        } else if (scan.result == momo_secneo::PatchResult::kNotFound) {
-            pending_candidate = false;
-        }
-
-        if (elapsed_us >= kTimeoutMilliseconds * 1000L) {
-            if (saw_mismatch) {
-                __android_log_print(
-                    ANDROID_LOG_WARN, kLogTag,
-                    "SecNeo payload signature mismatch; no patch applied pid=%d observations=%u attempts=%u scans=%u elapsed_ms=%ld",
-                    getpid(), mismatch_candidates, attempts, scans, elapsed_us / 1000L);
-            } else {
-                __android_log_print(
-                    ANDROID_LOG_WARN, kLogTag,
-                    "SecNeo payload not found before timeout pid=%d attempts=%u scans=%u elapsed_ms=%ld",
-                    getpid(), attempts, scans, elapsed_us / 1000L);
-            }
-            close(statm);
-            return nullptr;
-        }
-
-        const long interval_us = pending_candidate ? kPendingPollMicroseconds
-            : (elapsed_us < 1000000L ? 500L
-                : (elapsed_us < 3000000L ? 2000L : 10000L));
-        SleepFor(interval_us);
+        SleepFor(monitor.SleepMicroseconds(now_us));
     }
+
+    int priority = ANDROID_LOG_WARN;
+    const char* reason = "SecNeo monitor stopped";
+    switch (monitor.status()) {
+        case momo_secneo::MonitorStatus::kPatched:
+            priority = ANDROID_LOG_INFO;
+            reason = "SecNeo maps branch patched";
+            break;
+        case momo_secneo::MonitorStatus::kAlreadyPatched:
+            priority = ANDROID_LOG_INFO;
+            reason = "SecNeo maps branch already patched";
+            break;
+        case momo_secneo::MonitorStatus::kWriteFailed:
+            priority = ANDROID_LOG_ERROR;
+            reason = "SecNeo maps branch write verification failed";
+            break;
+        case momo_secneo::MonitorStatus::kSignatureMismatch:
+            reason = "SecNeo stable candidate set signature mismatch; no patch applied";
+            break;
+        case momo_secneo::MonitorStatus::kTimedOut:
+            reason = "SecNeo monitor timeout; no patch applied";
+            break;
+        case momo_secneo::MonitorStatus::kCandidateOverflow:
+            reason = "SecNeo candidate capacity exceeded; no patch applied";
+            break;
+        case momo_secneo::MonitorStatus::kScanFailed:
+            reason = "SecNeo maps scan incomplete; no patch applied";
+            break;
+        case momo_secneo::MonitorStatus::kRunning:
+        case momo_secneo::MonitorStatus::kUnsupportedPageSize:
+            break;
+    }
+    __android_log_print(
+        priority, kLogTag,
+        "%s pid=%d base=0x%lx offset=0x%lx candidates=%u observations=%u attempts=%u scans=%u elapsed_us=%ld",
+        reason, getpid(), static_cast<unsigned long>(scan.base),
+        static_cast<unsigned long>(momo_secneo::kPatchOffset), scan.candidates.count,
+        monitor.mismatch_observations(), attempts, monitor.scans(),
+        static_cast<long>(now_us - started_at_us));
+    if (statm >= 0) close(statm);
+    return nullptr;
 }
 
 class MomoSecNeoModule final : public zygisk::ModuleBase {

@@ -2,9 +2,9 @@
 
 FreeMOMO 是一个配合 LSPosed 与 Zygisk 使用的墨墨背单词增强模块，用于修改单词上限、用户等级和相关权限。
 
-**最佳适配：墨墨背单词 5.5.95（versionCode 898）**
+**已适配：墨墨背单词 5.6.00（versionCode 900）**
 
-其他版本会尝试根据运行时结构自动适配 Java 层 Hook；如果某项结构无法唯一确认，该项会安全关闭。native 层仍需匹配已验证指纹，不能自动迁移。
+内置映射版本直接安装 Java 层 Hook，无需等待结构扫描。其他版本会尝试根据运行时结构自动适配；如果某项结构无法唯一确认，该项会安全关闭。native 层仍需匹配已验证指纹，不能自动迁移。
 
 ## 使用前准备
 
@@ -24,15 +24,16 @@ FreeMOMO 是一个配合 LSPosed 与 Zygisk 使用的墨墨背单词增强模块
 
 两部分职责不同，缺少 Zygisk 模块时，Java Hook 无法替代 native 层处理。
 
+当前 native 适配只支持 4096 字节内核页，保留精确映射尺寸与九点指纹校验。监控计时与映射生命周期边界见 [Zygisk companion 文档](./zygisk-companion/README.md)。
+
 ## 使用方式
 
 1. 从 [Releases](https://github.com/RRRRUDDDD/FreeMOMO/releases) 下载 `freemomo.apk` 和 `freemomo-zygisk.zip`。
 2. 安装 `freemomo.apk`。
 3. 在 LSPosed 中启用 FreeMOMO，作用域只勾选墨墨背单词（`com.maimemo.android.momo`）。
 4. 在 KernelSU/Magisk 模块管理器中安装 `freemomo-zygisk.zip`。
-5. 首次打开墨墨背单词时，FreeMOMO 会初始化 Hook；需要自动适配的版本会寻找 Hook 方法并将结果保存在本地。
-6. 在 App 中停留一会儿，看到“FreeMOMO 已找到 Hook 函数”的 Toast 后完全退出墨墨背单词。
-7. 再次打开墨墨背单词，Hook 即可生效。
+5. 安装或更新 APK 后，完全退出墨墨背单词再打开，使 LSPosed 加载新模块。Hook 安装成功后会显示“FreeMOMO 已找到 Hook 函数”。
+6. 需要自动适配的其他版本会寻找 Hook 方法并将结果保存在本地；首次启动请停留一会儿，看到上述 Toast 后完全退出并再次打开墨墨背单词。
 
 ## 许可证
 

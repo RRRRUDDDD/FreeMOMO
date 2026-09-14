@@ -1,0 +1,391 @@
+# Independently recovered from Momo 5.6.00 / 900 APK SHA256 6C1FCB95AA9A3E12B73AF589B0EFDCB2FB7D81CD4516451BDF5B031C2B9D46AE
+# Source classes.dex SHA256 02086e34aa274e366d5e9cec9a5136648d61540782a6c195e7f47a6b6ee617a1
+M	com.maimemo.android.momo.network.response.notification.NotificationSyncResponse$Data	<init>		void	false
+F	com.maimemo.android.momo.network.response.notification.NotificationSyncResponse$Data	notifications	java.util.Set	false
+F	com.maimemo.android.momo.network.response.notification.NotificationSyncResponse$Data	views	java.util.Set	false
+M	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	<clinit>		void	true
+M	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	valueOf	java.lang.String	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	true
+M	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	values		[Lcom.maimemo.android.momo.notification.Notification$Dialog$Button$Action;	true
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	$VALUES	[Lcom.maimemo.android.momo.notification.Notification$Dialog$Button$Action;	true
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	BIND_PHONE	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	true
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	BIND_WX	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	true
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	CLOSE	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	true
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	OPEN	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	true
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	STUDY_MORE	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	true
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	UPGRADE	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	true
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	WITHDRAW	com.maimemo.android.momo.notification.Notification$Dialog$Button$Action	true
+M	com.maimemo.android.momo.notification.Notification$Dialog$Button$a	<init>		void	false
+M	com.maimemo.android.momo.notification.Notification$Dialog$Button$a	a		java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button$a	a	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button$a	b	boolean	false
+M	com.maimemo.android.momo.notification.Notification$Dialog$Button	<init>		void	false
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button	a	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button	b	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button	c	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button	d	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button	e	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button	f	com.maimemo.android.momo.notification.Notification$Dialog$Button$a	false
+F	com.maimemo.android.momo.notification.Notification$Dialog$Button	g	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	false
+M	com.maimemo.android.momo.notification.Notification$Dialog$ButtonAlign	<clinit>		void	true
+M	com.maimemo.android.momo.notification.Notification$Dialog$ButtonAlign	valueOf	java.lang.String	com.maimemo.android.momo.notification.Notification$Dialog$ButtonAlign	true
+M	com.maimemo.android.momo.notification.Notification$Dialog$ButtonAlign	values		[Lcom.maimemo.android.momo.notification.Notification$Dialog$ButtonAlign;	true
+F	com.maimemo.android.momo.notification.Notification$Dialog$ButtonAlign	$VALUES	[Lcom.maimemo.android.momo.notification.Notification$Dialog$ButtonAlign;	true
+F	com.maimemo.android.momo.notification.Notification$Dialog$ButtonAlign	HORIZONTAL	com.maimemo.android.momo.notification.Notification$Dialog$ButtonAlign	true
+F	com.maimemo.android.momo.notification.Notification$Dialog$ButtonAlign	VERTICAL	com.maimemo.android.momo.notification.Notification$Dialog$ButtonAlign	true
+M	com.maimemo.android.momo.notification.Notification$Dialog	<init>		void	false
+F	com.maimemo.android.momo.notification.Notification$Dialog	a	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification$Dialog	b	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification$Dialog	c	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification$Dialog	d	java.lang.Boolean	false
+F	com.maimemo.android.momo.notification.Notification$Dialog	e	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification$Dialog	f	java.util.List	false
+F	com.maimemo.android.momo.notification.Notification$Dialog	g	java.lang.String	false
+M	com.maimemo.android.momo.notification.Notification$a$a	<init>		void	false
+F	com.maimemo.android.momo.notification.Notification$a$a	a	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification$a$a	b	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification$a$a	c	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification$a$a	d	java.util.List	false
+F	com.maimemo.android.momo.notification.Notification$a$a	e	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification$a$a	f	boolean	false
+F	com.maimemo.android.momo.notification.Notification$a$a	g	boolean	false
+M	com.maimemo.android.momo.notification.Notification$a	<init>		void	false
+F	com.maimemo.android.momo.notification.Notification$a	a	java.util.List	false
+M	com.maimemo.android.momo.notification.Notification	<init>		void	false
+M	com.maimemo.android.momo.notification.Notification	json2Map	java.lang.String	java.util.Map	true
+M	com.maimemo.android.momo.notification.Notification	set2Map	java.util.Set	java.util.Map	true
+M	com.maimemo.android.momo.notification.Notification	addExtra	java.lang.String,java.lang.String	void	false
+M	com.maimemo.android.momo.notification.Notification	equals	java.lang.Object	boolean	false
+M	com.maimemo.android.momo.notification.Notification	getExtraJObj		cm5	false
+M	com.maimemo.android.momo.notification.Notification	isCounter		boolean	false
+M	com.maimemo.android.momo.notification.Notification	isIM		boolean	false
+M	com.maimemo.android.momo.notification.Notification	isOn		boolean	false
+F	com.maimemo.android.momo.notification.Notification	APP_UPGRADE	java.lang.String	true
+F	com.maimemo.android.momo.notification.Notification	APP_UPGRADE_DIALOG	java.lang.String	true
+F	com.maimemo.android.momo.notification.Notification	PULL_TOOLBAR	java.lang.String	true
+F	com.maimemo.android.momo.notification.Notification	PULL_TOOLBAR_BOTTOM	java.lang.String	true
+F	com.maimemo.android.momo.notification.Notification	TYPE_ANIM	java.lang.String	true
+F	com.maimemo.android.momo.notification.Notification	TYPE_COUNTER	java.lang.String	true
+F	com.maimemo.android.momo.notification.Notification	TYPE_DIALOG	java.lang.String	true
+F	com.maimemo.android.momo.notification.Notification	TYPE_RED_DOT	java.lang.String	true
+F	com.maimemo.android.momo.notification.Notification	code	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification	completed	boolean	false
+F	com.maimemo.android.momo.notification.Notification	dialog	com.maimemo.android.momo.notification.Notification$Dialog	false
+F	com.maimemo.android.momo.notification.Notification	extra	cm5	false
+F	com.maimemo.android.momo.notification.Notification	feedback	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification	id	java.lang.String	false
+F	com.maimemo.android.momo.notification.Notification	redDot	com.maimemo.android.momo.notification.Notification$a	false
+F	com.maimemo.android.momo.notification.Notification	releasedTime	java.util.Date	false
+F	com.maimemo.android.momo.notification.Notification	type	java.lang.String	false
+M	com.maimemo.android.momo.notification.d	a	com.maimemo.android.momo.notification.Notification$Dialog,android.app.Activity,com.maimemo.android.momo.notification.Notification,boolean,mc4,p79,int	void	true
+M	com.maimemo.android.momo.settings.appinfo.b	createFromParcel	android.os.Parcel	java.lang.Object	false
+M	com.maimemo.android.momo.settings.appinfo.b	newArray	int	[Ljava.lang.Object;	false
+M	com.maimemo.android.momo.settings.appinfo.c	<init>	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity	void	false
+M	com.maimemo.android.momo.settings.appinfo.c	accept	java.lang.Object	void	false
+F	com.maimemo.android.momo.settings.appinfo.c	a	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity	false
+M	com.maimemo.android.momo.upgrade.InAppUpgradeHelper$a	<init>		void	false
+F	com.maimemo.android.momo.upgrade.InAppUpgradeHelper$a	a	java.lang.String	false
+F	com.maimemo.android.momo.upgrade.InAppUpgradeHelper$a	b	long	false
+F	com.maimemo.android.momo.upgrade.InAppUpgradeHelper$a	c	int	false
+M	com.maimemo.android.momo.upgrade.InAppUpgradeHelper	<init>		void	false
+M	com.maimemo.android.momo.upgrade.InAppUpgradeHelper	checkNetworkStatusOnDownloadFile	android.content.Context,long,java.lang.Runnable,java.lang.Runnable	void	true
+M	com.maimemo.android.momo.upgrade.InAppUpgradeHelper	getUpdateInfo		com.maimemo.android.momo.upgrade.InAppUpgradeHelper$a	true
+M	com.maimemo.android.momo.upgrade.InAppUpgradeHelper	init		void	true
+M	com.maimemo.android.momo.upgrade.InAppUpgradeHelper	installApp	java.lang.String	void	true
+M	com.maimemo.android.momo.upgrade.InAppUpgradeHelper	retryDownload	android.content.Context,boolean	void	true
+M	com.maimemo.android.momo.upgrade.InAppUpgradeHelper	setInAppUpgradeInfo	com.maimemo.android.momo.upgrade.InAppUpgradeHelper$a	void	true
+M	com.maimemo.android.momo.upgrade.InAppUpgradeHelper	startDownload	android.content.Context,java.lang.String,boolean,e70	android.content.ServiceConnection	true
+M	com.maimemo.android.momo.upgrade.InAppUpgradeHelper	stopDownload	android.content.Context	void	true
+M	com.maimemo.android.momo.upgrade.MemoAppUpgradeAction	<clinit>		void	true
+M	com.maimemo.android.momo.upgrade.MemoAppUpgradeAction	valueOf	java.lang.String	com.maimemo.android.momo.upgrade.MemoAppUpgradeAction	true
+M	com.maimemo.android.momo.upgrade.MemoAppUpgradeAction	values		[Lcom.maimemo.android.momo.upgrade.MemoAppUpgradeAction;	true
+F	com.maimemo.android.momo.upgrade.MemoAppUpgradeAction	$ENTRIES	pk3	true
+F	com.maimemo.android.momo.upgrade.MemoAppUpgradeAction	$VALUES	[Lcom.maimemo.android.momo.upgrade.MemoAppUpgradeAction;	true
+F	com.maimemo.android.momo.upgrade.MemoAppUpgradeAction	APPROVE	com.maimemo.android.momo.upgrade.MemoAppUpgradeAction	true
+F	com.maimemo.android.momo.upgrade.MemoAppUpgradeAction	REJECT	com.maimemo.android.momo.upgrade.MemoAppUpgradeAction	true
+F	com.maimemo.android.momo.upgrade.MemoAppUpgradeAction	SUCCESS	com.maimemo.android.momo.upgrade.MemoAppUpgradeAction	true
+M	com.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType	<clinit>		void	true
+M	com.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType	valueOf	java.lang.String	com.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType	true
+M	com.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType	values		[Lcom.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType;	true
+F	com.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType	$ENTRIES	pk3	true
+F	com.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType	$VALUES	[Lcom.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType;	true
+F	com.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType	DIALOG	com.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType	true
+F	com.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType	NOTIFICATION	com.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType	true
+M	com.maimemo.android.momo.upgrade.MemoDownloadService$NotificationReceiver	<init>		void	false
+M	com.maimemo.android.momo.upgrade.MemoDownloadService$NotificationReceiver	onReceive	android.content.Context,android.content.Intent	void	false
+M	com.maimemo.android.momo.upgrade.b	<init>	com.maimemo.android.momo.upgrade.d,java.lang.String,com.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType	void	false
+M	com.maimemo.android.momo.upgrade.b	run		void	false
+F	com.maimemo.android.momo.upgrade.b	a	com.maimemo.android.momo.upgrade.d	false
+F	com.maimemo.android.momo.upgrade.b	b	java.lang.String	false
+F	com.maimemo.android.momo.upgrade.b	c	com.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType	false
+M	com.maimemo.android.momo.upgrade.c	<init>	com.maimemo.android.momo.upgrade.d,java.lang.String,com.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType	void	false
+M	com.maimemo.android.momo.upgrade.c	accept	java.lang.Object	void	false
+F	com.maimemo.android.momo.upgrade.c	a	com.maimemo.android.momo.upgrade.d	false
+F	com.maimemo.android.momo.upgrade.c	b	java.lang.String	false
+F	com.maimemo.android.momo.upgrade.c	c	com.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType	false
+M	com.maimemo.android.momo.upgrade.d	<clinit>		void	true
+M	com.maimemo.android.momo.upgrade.d	<init>	android.content.Context,com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	void	false
+M	com.maimemo.android.momo.upgrade.d	f	com.maimemo.android.momo.upgrade.d,java.lang.String	boolean	true
+M	com.maimemo.android.momo.upgrade.d	a	boolean	void	false
+M	com.maimemo.android.momo.upgrade.d	b		kx6	false
+M	com.maimemo.android.momo.upgrade.d	c	java.lang.String	void	false
+M	com.maimemo.android.momo.upgrade.d	d		void	false
+M	com.maimemo.android.momo.upgrade.d	e	java.lang.String,com.maimemo.android.momo.upgrade.MemoAppUpgradeModel$PromptType,boolean	boolean	false
+F	com.maimemo.android.momo.upgrade.d	g	java.util.Map	true
+F	com.maimemo.android.momo.upgrade.d	a	android.content.Context	false
+F	com.maimemo.android.momo.upgrade.d	b	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	false
+F	com.maimemo.android.momo.upgrade.d	c	zma	false
+F	com.maimemo.android.momo.upgrade.d	d	android.content.ServiceConnection	false
+F	com.maimemo.android.momo.upgrade.d	e	s22	false
+F	com.maimemo.android.momo.upgrade.d	f	el0	false
+M	f70	d		void	false
+M	f70	e	int	void	false
+M	f70	onDestroy		void	false
+M	f70	onTaskRemoved	android.content.Intent	void	false
+M	f70	onTimeout	int,int	void	false
+F	f70	a	java.util.HashSet	false
+F	f70	b	dk7	false
+M	gs2	<init>	java.lang.Object,int,java.lang.Object	void	false
+M	gs2	<init>	z94,android.view.View,android.graphics.Rect	void	false
+M	gs2	run		void	false
+F	gs2	a	int	false
+F	gs2	b	java.lang.Object	false
+F	gs2	c	java.lang.Object	false
+M	mk7	<clinit>		void	true
+M	mk7	a		void	true
+M	mk7	b	com.maimemo.android.momo.notification.Notification,vhb	void	true
+M	mk7	c	java.lang.String,vhb	boolean	true
+M	mk7	d	java.lang.String,vhb	boolean	true
+M	mk7	e	java.lang.String	com.maimemo.android.momo.notification.ControlledView	true
+M	mk7	f	java.lang.String	boolean	true
+M	mk7	g	java.lang.String	boolean	true
+M	mk7	h	android.content.Context,java.lang.String	boolean	true
+M	mk7	i	android.content.Context,java.lang.String	boolean	true
+M	mk7	j	boolean	void	true
+M	mk7	k	com.maimemo.android.momo.network.response.notification.NotificationSyncResponse	void	true
+F	mk7	a	zma	true
+M	o55	<clinit>		void	true
+M	o55	a	android.content.Context,java.lang.String,boolean,e70	android.content.ServiceConnection	true
+F	o55	a	zma	true
+F	o55	b	boolean	true
+F	o55	c	zma	true
+M	oq6	<init>	int,java.lang.Object	void	false
+M	oq6	run		void	false
+F	oq6	a	int	false
+F	oq6	b	java.lang.Object	false
+M	q55	<init>	boolean,e70	void	false
+M	q55	onServiceConnected	android.content.ComponentName,android.os.IBinder	void	false
+M	q55	onServiceDisconnected	android.content.ComponentName	void	false
+F	q55	a	wx6	false
+F	q55	b	e70	false
+F	q55	c	boolean	false
+F	q55	d	e70	false
+M	q60	<init>	int	void	false
+M	q60	get		java.lang.Object	false
+F	q60	a	int	false
+M	wx6	<init>	com.maimemo.android.momo.upgrade.MemoDownloadService	void	false
+F	wx6	a	com.maimemo.android.momo.upgrade.MemoDownloadService	false
+M	xu7	a	java.lang.Object	xu7	true
+M	xu7	b		java.lang.Object	false
+M	xu7	c		boolean	false
+M	xu7	d		java.lang.Object	false
+M	z60	a	wm	uz1	true
+M	z60	b	oja	wu9	true
+M	z60	c	oja	wu9	true
+M	z60	d	java.lang.String	wu9	true
+M	z60	e	int,java.lang.String	bv9	true
+M	z60	f	com.maimemo.android.momo.network.Api$ObjectClass	bv9	true
+M	z60	g	e19	java.lang.String	true
+M	z60	h	int	wu9	true
+M	z60	i	e19,boolean,boolean,boolean	com.maimemo.android.momo.network.response.word.VocabularyResponse	true
+M	z70	<init>	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity,int	void	false
+M	z70	onClick	android.view.View	void	false
+F	z70	a	int	false
+F	z70	b	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity	false
+M	com.maimemo.android.momo.network.response.notification.NotificationSyncResponse	<init>		void	false
+F	com.maimemo.android.momo.network.response.notification.NotificationSyncResponse	data	com.maimemo.android.momo.network.response.notification.NotificationSyncResponse$Data	false
+M	com.maimemo.android.momo.upgrade.MemoDownloadService	<clinit>		void	true
+M	com.maimemo.android.momo.upgrade.MemoDownloadService	<init>		void	false
+M	com.maimemo.android.momo.upgrade.MemoDownloadService	a	int	void	false
+M	com.maimemo.android.momo.upgrade.MemoDownloadService	b	java.lang.Throwable	void	false
+M	com.maimemo.android.momo.upgrade.MemoDownloadService	c	java.lang.String	void	false
+M	com.maimemo.android.momo.upgrade.MemoDownloadService	d		void	false
+M	com.maimemo.android.momo.upgrade.MemoDownloadService	f	android.content.Intent	void	false
+M	com.maimemo.android.momo.upgrade.MemoDownloadService	g		void	false
+M	com.maimemo.android.momo.upgrade.MemoDownloadService	onBind	android.content.Intent	android.os.IBinder	false
+M	com.maimemo.android.momo.upgrade.MemoDownloadService	onStartCommand	android.content.Intent,int,int	int	false
+F	com.maimemo.android.momo.upgrade.MemoDownloadService	h	java.lang.String	true
+F	com.maimemo.android.momo.upgrade.MemoDownloadService	c	java.lang.String	false
+F	com.maimemo.android.momo.upgrade.MemoDownloadService	d	java.lang.String	false
+F	com.maimemo.android.momo.upgrade.MemoDownloadService	e	int	false
+F	com.maimemo.android.momo.upgrade.MemoDownloadService	f	l52	false
+F	com.maimemo.android.momo.upgrade.MemoDownloadService	g	jy5	false
+M	com.maimemo.android.momo.upgrade.a	<init>	kx6,com.maimemo.android.momo.upgrade.d	void	false
+M	com.maimemo.android.momo.upgrade.a	a	com.maimemo.android.momo.ui.widget.dialog.MMCommonDialogFragment,hi6	boolean	false
+F	com.maimemo.android.momo.upgrade.a	a	kx6	false
+F	com.maimemo.android.momo.upgrade.a	b	com.maimemo.android.momo.upgrade.d	false
+M	kx6	<init>	com.maimemo.android.momo.upgrade.d	void	false
+M	kx6	P1	boolean	void	false
+F	kx6	c	boolean	false
+F	kx6	d	com.maimemo.android.momo.upgrade.d	false
+M	lx6	<init>	com.maimemo.android.momo.upgrade.d,com.maimemo.android.momo.databinding.ViewAppUpgradeProgressBinding	void	false
+M	lx6	a	int	void	false
+M	lx6	b	java.lang.Throwable	void	false
+M	lx6	c	java.lang.String	void	false
+F	lx6	a	com.maimemo.android.momo.upgrade.d	false
+F	lx6	b	com.maimemo.android.momo.databinding.ViewAppUpgradeProgressBinding	false
+M	p55	<init>	int,java.lang.Object	void	false
+M	p55	d	int	void	false
+M	p55	a	int	void	false
+M	p55	b	java.lang.Throwable	void	false
+M	p55	c	java.lang.String	void	false
+F	p55	a	int	false
+F	p55	b	java.lang.Object	false
+M	vsd	<clinit>		void	true
+M	vsd	<init>	int	void	false
+M	vsd	A		pu9	true
+M	vsd	B		void	true
+M	vsd	C	n0b,java.lang.Runnable	void	true
+M	vsd	c	java.lang.StringBuilder,aq5	void	true
+M	vsd	d	java.lang.StringBuilder,java.lang.String	void	true
+M	vsd	h	java.lang.StringBuilder,aq5	void	true
+M	vsd	i	java.lang.String	boolean	true
+M	vsd	l		com.maimemo.android.momo.model.vocextension.PhraseEditingRule	true
+M	vsd	m	tq5	java.lang.String	true
+M	vsd	n	java.lang.StringBuilder,cq5,j84,java.util.List,boolean,boolean	void	true
+M	vsd	p	sr5,boolean	java.lang.String	true
+M	vsd	s	sr5	java.lang.String	true
+M	vsd	t	java.lang.StringBuilder,java.util.List,boolean,boolean	void	true
+M	vsd	u	n0b,java.lang.Throwable	void	true
+M	vsd	w	android.content.Context,java.util.List	c0a	true
+M	vsd	x		void	true
+M	vsd	y		void	true
+M	vsd	a	int,int	android.media.CamcorderProfile	false
+M	vsd	accept	java.lang.Object	void	false
+M	vsd	b	j37,h33	boolean	false
+M	vsd	e		java.lang.Boolean	false
+M	vsd	f	int,int	boolean	false
+M	vsd	findValueByNumber	int	ya5	false
+M	vsd	g	gi9	void	false
+M	vsd	j	pt4,jla	void	false
+M	vsd	k	androidx.media3.common.b	pdd	false
+M	vsd	o		void	false
+M	vsd	q	f09,ev7	f09	false
+M	vsd	r	int,int	h1b	false
+M	vsd	v	androidx.media3.common.b	boolean	false
+M	vsd	z		java.lang.Object	false
+F	vsd	b	vsd	true
+F	vsd	c	vsd	true
+F	vsd	d	vsd	true
+F	vsd	e	vsd	true
+F	vsd	f	vsd	true
+F	vsd	g	vsd	true
+F	vsd	h	vsd	true
+F	vsd	i	vsd	true
+F	vsd	j	vsd	true
+F	vsd	k	vsd	true
+F	vsd	l	vsd	true
+F	vsd	m	vsd	true
+F	vsd	n	vsd	true
+F	vsd	a	int	false
+M	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity$LP	<clinit>		void	true
+M	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity$LP	<init>	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	void	false
+M	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity$LP	describeContents		int	false
+M	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity$LP	equals	java.lang.Object	boolean	false
+M	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity$LP	hashCode		int	false
+M	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity$LP	toString		java.lang.String	false
+M	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity$LP	writeToParcel	android.os.Parcel,int	void	false
+F	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity$LP	CREATOR	android.os.Parcelable$Creator	true
+F	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity$LP	b	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	false
+M	jx6	<init>	com.maimemo.android.momo.upgrade.d,int	void	false
+M	jx6	invoke		java.lang.Object	false
+F	jx6	a	int	false
+F	jx6	b	com.maimemo.android.momo.upgrade.d	false
+M	u99	<clinit>		void	true
+M	u99	<init>	int	void	false
+M	u99	<init>	int,java.lang.Object	void	false
+M	u99	<init>	bv1	void	false
+M	u99	<init>	java.lang.String	void	false
+M	u99	<init>	[I,[F,[[F	void	false
+M	u99	x		u99	true
+M	u99	A	int,o71	void	false
+M	u99	B	int,int	void	false
+M	u99	C	int,long	void	false
+M	u99	D	int,java.lang.Object,sf9	void	false
+M	u99	E	int,int	void	false
+M	u99	F	int,long	void	false
+M	u99	G	int,java.lang.Object,sf9	void	false
+M	u99	H	int,java.lang.Object	void	false
+M	u99	a	androidx.compose.ui.node.LayoutNode	void	false
+M	u99	accept	java.lang.Object	void	false
+M	u99	accept	java.lang.Object,java.lang.Object	void	false
+M	u99	apply	java.lang.Object	java.lang.Object	false
+M	u99	c		void	false
+M	u99	d		long	false
+M	u99	e		java.lang.Object	false
+M	u99	g	boolean	void	false
+M	u99	i	java.lang.String	void	false
+M	u99	j		boolean	false
+M	u99	n	ra2	boolean	false
+M	u99	o	vs1	qf1	false
+M	u99	onCancel		void	false
+M	u99	onSuccess	java.lang.Object	void	false
+M	u99	r		void	false
+M	u99	s	x96	boolean	false
+M	u99	s0	java.lang.Throwable	void	false
+M	u99	t		long	false
+M	u99	toString		java.lang.String	false
+M	u99	u	long	void	false
+M	u99	v		long	false
+M	u99	w		long	false
+M	u99	y	androidx.compose.ui.node.LayoutNode	boolean	false
+M	u99	z		java.lang.Object	false
+F	u99	c	u99	true
+F	u99	d	com.google.android.gms.common.internal.RootTelemetryConfiguration	true
+F	u99	e	u99	true
+F	u99	a	int	false
+F	u99	b	java.lang.Object	false
+M	com.maimemo.android.momo.settings.appinfo.MemoServiceTermsActivity	<clinit>		void	true
+M	com.maimemo.android.momo.settings.appinfo.MemoServiceTermsActivity	<init>		void	false
+M	com.maimemo.android.momo.settings.appinfo.MemoServiceTermsActivity	U0	android.view.ViewGroup,android.os.Bundle	void	false
+M	com.maimemo.android.momo.settings.appinfo.MemoServiceTermsActivity	Y0		void	false
+F	com.maimemo.android.momo.settings.appinfo.MemoServiceTermsActivity	s	[Lqr5;	true
+F	com.maimemo.android.momo.settings.appinfo.MemoServiceTermsActivity	r	dv9	false
+M	com.maimemo.android.momo.settings.appinfo.AboutMaiMemoActivity	<clinit>		void	true
+M	com.maimemo.android.momo.settings.appinfo.AboutMaiMemoActivity	<init>		void	false
+M	com.maimemo.android.momo.settings.appinfo.AboutMaiMemoActivity	U0	android.view.ViewGroup,android.os.Bundle	void	false
+M	com.maimemo.android.momo.settings.appinfo.AboutMaiMemoActivity	Z0		com.maimemo.android.momo.databinding.ActivityAboutMaimemoBinding	false
+M	com.maimemo.android.momo.settings.appinfo.AboutMaiMemoActivity	getViewConnections		java.util.List	false
+F	com.maimemo.android.momo.settings.appinfo.AboutMaiMemoActivity	w	[Lqr5;	true
+F	com.maimemo.android.momo.settings.appinfo.AboutMaiMemoActivity	u	dv9	false
+F	com.maimemo.android.momo.settings.appinfo.AboutMaiMemoActivity	v	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	false
+M	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity	<clinit>		void	true
+M	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity	<init>		void	false
+M	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity	U0	android.view.ViewGroup,android.os.Bundle	void	false
+M	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity	Z0		void	false
+F	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity	w	com.maimemo.android.momo.settings.appinfo.a	true
+F	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity	x	[Lqr5;	true
+F	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity	u	dv9	false
+F	com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity	v	zma	false
+M	wpd	e	android.content.Context,com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	void	true
+M	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	<clinit>		void	true
+M	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	<init>	java.lang.String,java.lang.String,java.lang.String,java.lang.String,boolean,java.lang.String,java.lang.String	void	false
+M	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	a		boolean	false
+M	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	b		java.lang.String	false
+M	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	c		java.lang.String	false
+M	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	d		java.lang.String	false
+M	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	describeContents		int	false
+M	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	equals	java.lang.Object	boolean	false
+M	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	f		java.lang.String	false
+M	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	getId		java.lang.String	false
+M	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	getTitle		java.lang.String	false
+M	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	hashCode		int	false
+M	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	toString		java.lang.String	false
+M	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	writeToParcel	android.os.Parcel,int	void	false
+F	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	CREATOR	android.os.Parcelable$Creator	true
+F	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	force	boolean	false
+F	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	id	java.lang.String	false
+F	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	message	java.lang.String	false
+F	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	newVersionName	java.lang.String	false
+F	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	primaryUrl	java.lang.String	false
+F	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	secondaryUrl	java.lang.String	false
+F	com.maimemo.android.momo.model.upgrade.AppUpgradeDialogInfo	title	java.lang.String	false

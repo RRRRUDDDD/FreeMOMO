@@ -1,7 +1,10 @@
 [CmdletBinding()]
 param(
     [Parameter()]
-    [string] $NdkPath
+    [string] $NdkPath,
+
+    [Parameter()]
+    [string] $BuildSubdirectory
 )
 
 Set-StrictMode -Version Latest
@@ -100,30 +103,32 @@ if (-not (Test-Path -LiteralPath $ndkBuild -PathType Leaf)) {
     throw "ndk-build.cmd was not found in the selected NDK: $ndkDirectory"
 }
 
-$buildDirectory = Resolve-ProjectChild -ProjectDirectory $projectDirectory -RelativePath 'build'
-$objectDirectory = Resolve-ProjectChild -ProjectDirectory $projectDirectory -RelativePath 'obj'
-$libraryDirectory = Resolve-ProjectChild -ProjectDirectory $projectDirectory -RelativePath 'libs'
-
-Remove-ProjectDirectory -Path $buildDirectory -ProjectDirectory $projectDirectory
-Remove-ProjectDirectory -Path $objectDirectory -ProjectDirectory $projectDirectory
-Remove-ProjectDirectory -Path $libraryDirectory -ProjectDirectory $projectDirectory
+if ([string]::IsNullOrWhiteSpace($BuildSubdirectory)) {
+    $BuildSubdirectory = 'release-{0}-{1}' -f [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'),
+        [Guid]::NewGuid().ToString('N').Substring(0, 8)
+}
+$buildRoot = Resolve-ProjectChild -ProjectDirectory $projectDirectory -RelativePath 'build'
+$buildDirectory = Resolve-ProjectChild -ProjectDirectory $buildRoot -RelativePath $BuildSubdirectory
+if (Test-Path -LiteralPath $buildDirectory) {
+    throw "Build output already exists; choose a new -BuildSubdirectory: $buildDirectory"
+}
+$objectDirectory = Resolve-ProjectChild -ProjectDirectory $buildDirectory -RelativePath 'obj'
+$libraryDirectory = Resolve-ProjectChild -ProjectDirectory $buildDirectory -RelativePath 'libs'
+New-Item -ItemType Directory -Path $buildDirectory -Force | Out-Null
 
 $ndkArguments = @(
     '-C', $projectDirectory,
     "NDK_PROJECT_PATH=$projectDirectory",
     "APP_BUILD_SCRIPT=$(Join-Path $jniDirectory 'Android.mk')",
     "NDK_APPLICATION_MK=$(Join-Path $jniDirectory 'Application.mk')",
+    "NDK_OUT=$objectDirectory",
+    "NDK_LIBS_OUT=$libraryDirectory",
     'APP_ABI=arm64-v8a',
     'APP_OPTIM=release',
     'NDK_DEBUG=0'
 )
 
 Write-Host "Building with NDK: $ndkDirectory"
-& $ndkBuild @ndkArguments clean
-if ($LASTEXITCODE -ne 0) {
-    throw "ndk-build clean failed with exit code $LASTEXITCODE"
-}
-
 & $ndkBuild @ndkArguments
 if ($LASTEXITCODE -ne 0) {
     throw "ndk-build failed with exit code $LASTEXITCODE"
@@ -154,9 +159,9 @@ if ($moduleVersion -notmatch '^[0-9]+(?:\.[0-9]+){2}(?:[-+][0-9A-Za-z.-]+)?$') {
     throw "Invalid module version '$moduleVersion' in: $moduleProperty"
 }
 
-$stagingDirectory = Resolve-ProjectChild -ProjectDirectory $projectDirectory -RelativePath 'build/staging'
-$stagingZygiskDirectory = Resolve-ProjectChild -ProjectDirectory $projectDirectory -RelativePath 'build/staging/zygisk'
-$artifactPath = Resolve-ProjectChild -ProjectDirectory $projectDirectory -RelativePath "build/freemomo-zygisk-$moduleVersion.zip"
+$stagingDirectory = Resolve-ProjectChild -ProjectDirectory $buildDirectory -RelativePath 'staging'
+$stagingZygiskDirectory = Resolve-ProjectChild -ProjectDirectory $buildDirectory -RelativePath 'staging/zygisk'
+$artifactPath = Resolve-ProjectChild -ProjectDirectory $buildDirectory -RelativePath "freemomo-zygisk-$moduleVersion.zip"
 
 New-Item -ItemType Directory -Path $stagingZygiskDirectory -Force | Out-Null
 Copy-Item -LiteralPath $moduleProperty -Destination (Join-Path $stagingDirectory 'module.prop')
@@ -164,7 +169,7 @@ Copy-Item -LiteralPath $customizeScript -Destination (Join-Path $stagingDirector
 Copy-Item -LiteralPath $productionLibrary -Destination (Join-Path $stagingZygiskDirectory 'arm64-v8a.so')
 
 Compress-Archive -Path (Join-Path $stagingDirectory '*') -DestinationPath $artifactPath -CompressionLevel Optimal
-Remove-ProjectDirectory -Path $stagingDirectory -ProjectDirectory $projectDirectory
+Remove-ProjectDirectory -Path $stagingDirectory -ProjectDirectory $buildDirectory
 
 $artifact = Get-Item -LiteralPath $artifactPath
 $hash = Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256

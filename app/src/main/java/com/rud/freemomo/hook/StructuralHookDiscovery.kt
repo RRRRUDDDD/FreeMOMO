@@ -109,23 +109,32 @@ object StructuralHookDiscovery {
 
     fun discover(
         classes: List<ClassDescriptor>,
-        wordLimitResults: Map<MethodSignature, Number> = emptyMap()
-    ): StructuralDiscoveryResult = discoverWithDiagnostics(classes, wordLimitResults).result
+        wordLimitResults: Map<MethodSignature, Number> = emptyMap(),
+        capabilities: Set<HookCapability> = HookCapability.entries.toSet()
+    ): StructuralDiscoveryResult = discoverWithDiagnostics(classes, wordLimitResults, capabilities).result
 
     internal fun discoverWithDiagnostics(
         classes: List<ClassDescriptor>,
-        wordLimitResults: Map<MethodSignature, Number> = emptyMap()
+        wordLimitResults: Map<MethodSignature, Number> = emptyMap(),
+        capabilities: Set<HookCapability> = HookCapability.entries.toSet()
     ): StructuralDiscoveryDiagnostics {
         val index = DiscoveryIndex.from(classes)
-        var word = discoverWordLimit(index)
+        var word = if (HookCapability.WORD_LIMIT in capabilities) {
+            discoverWordLimit(index)
+        } else {
+            WordLimitDiscovery(DiscoveryStatus.MISSING)
+        }
         word.candidates.forEach { candidate ->
             wordLimitResults[candidate]?.let { result -> word = word.observe(candidate, result) }
         }
         val result = StructuralDiscoveryResult(
             wordLimit = word,
-            display = discoverDisplay(index),
-            privilege = discoverPrivilege(index),
-            cloud = discoverCloud(index)
+            display = if (HookCapability.DISPLAY in capabilities) discoverDisplay(index)
+                else CapabilityDiscovery(DiscoveryStatus.MISSING),
+            privilege = if (HookCapability.PRIVILEGE in capabilities) discoverPrivilege(index)
+                else CapabilityDiscovery(DiscoveryStatus.MISSING),
+            cloud = if (HookCapability.CLOUD in capabilities) discoverCloud(index)
+                else CapabilityDiscovery(DiscoveryStatus.MISSING)
         )
         return StructuralDiscoveryDiagnostics(
             result = result,
@@ -319,9 +328,7 @@ object StructuralHookDiscovery {
         val methods: List<MethodSignature>
     )
 
-    private fun isWordLimitShape(method: MethodSignature): Boolean =
-        method.className == HookTargets.WORD_LIMIT_CLASS &&
-            method.isExact(emptyList(), HookTargets.INT)
+    private fun isWordLimitShape(method: MethodSignature): Boolean = HookSignatures.isWord(method)
 
     private fun isDisplayRelevant(method: MethodSignature): Boolean =
         method.parameterTypes == displayShortParameters ||
@@ -343,5 +350,5 @@ object StructuralHookDiscovery {
     private fun MethodSignature.isExact(
         parameters: List<String>,
         returnTypeName: String
-    ): Boolean = isStatic && parameterTypes == parameters && returnType == returnTypeName
+    ): Boolean = HookSignatures.isStaticMethod(this, parameters, returnTypeName)
 }

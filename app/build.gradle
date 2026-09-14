@@ -3,7 +3,7 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
-def appVersionName = "3.1"
+def appVersionName = "3.2"
 
 android {
     namespace = "com.rud.freemomo"
@@ -17,7 +17,7 @@ android {
         applicationId = "com.rud.freemomo"
         minSdk = 28
         targetSdk = 36
-        versionCode = 20260816
+        versionCode = 20260914
         versionName = appVersionName
     }
 

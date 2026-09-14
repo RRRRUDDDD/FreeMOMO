@@ -25,9 +25,11 @@ constexpr Signature kSignatures[] = {
     {0x1db74, 0xd4000001},
 };
 
+int g_checks = 0;
 int g_failures = 0;
 
 void Expect(bool condition, const char* test_name) {
+    ++g_checks;
     if (condition) {
         printf("PASS: %s\n", test_name);
         return;
@@ -39,13 +41,24 @@ void Expect(bool condition, const char* test_name) {
 class PayloadMapping {
 public:
     PayloadMapping() {
-        address_ = mmap(nullptr, momo_secneo::kPayloadSize,
-                        PROT_READ | PROT_WRITE | PROT_EXEC,
-                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        const long page_size = sysconf(_SC_PAGESIZE);
+        if (page_size <= 0) return;
+        // Guard pages keep neighboring fixtures from merging into a larger VMA.
+        allocation_size_ = momo_secneo::kPayloadSize + static_cast<size_t>(page_size) * 2;
+        allocation_ = mmap(nullptr, allocation_size_, PROT_NONE,
+                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (allocation_ == MAP_FAILED) return;
+        address_ = static_cast<unsigned char*>(allocation_) + page_size;
+        if (mprotect(address_, momo_secneo::kPayloadSize,
+                     PROT_READ | PROT_WRITE | PROT_EXEC) != 0) {
+            munmap(allocation_, allocation_size_);
+            allocation_ = MAP_FAILED;
+            address_ = MAP_FAILED;
+        }
     }
 
     ~PayloadMapping() {
-        if (IsValid()) munmap(address_, momo_secneo::kPayloadSize);
+        if (allocation_ != MAP_FAILED) munmap(allocation_, allocation_size_);
     }
 
     PayloadMapping(const PayloadMapping&) = delete;
@@ -81,6 +94,8 @@ public:
     }
 
 private:
+    void* allocation_ = MAP_FAILED;
+    size_t allocation_size_ = 0;
     void* address_ = MAP_FAILED;
 };
 
@@ -173,7 +188,7 @@ void TestPatchPayload() {
 void TestScanner() {
     const momo_secneo::ScanResult empty = momo_secneo::ScanAndPatchSelf();
     Expect(empty.result == momo_secneo::PatchResult::kNotFound &&
-               empty.candidates == 0,
+               empty.candidates.count == 0,
            "scanner reports no candidate");
 
     {
@@ -182,7 +197,8 @@ void TestScanner() {
         if (payload.IsValid()) {
             const momo_secneo::ScanResult mismatch = momo_secneo::ScanAndPatchSelf();
             Expect(mismatch.result == momo_secneo::PatchResult::kSignatureMismatch &&
-                       mismatch.base == payload.Base() && mismatch.candidates == 1,
+                       mismatch.base == payload.Base() && mismatch.candidates.count == 1 &&
+                       mismatch.candidates.bases[0] == payload.Base(),
                    "scanner reports an invalid candidate");
         }
     }
@@ -194,22 +210,110 @@ void TestScanner() {
             payload.Initialize();
             const momo_secneo::ScanResult patched = momo_secneo::ScanAndPatchSelf();
             Expect(patched.result == momo_secneo::PatchResult::kPatched &&
-                       patched.base == payload.Base() && patched.candidates == 1,
+                       patched.base == payload.Base() && patched.candidates.count == 1 &&
+                       patched.candidates.bases[0] == payload.Base(),
                    "scanner finds and patches a valid candidate");
         }
     }
 }
 
+bool Contains(const momo_secneo::CandidateSet& candidates, uintptr_t base) {
+    for (unsigned int index = 0; index < candidates.count; ++index) {
+        if (candidates.bases[index] == base) return true;
+    }
+    return false;
+}
+
+void TestCompleteCandidateSet() {
+    PayloadMapping first;
+    PayloadMapping second;
+    PayloadMapping third;
+    Expect(first.IsValid() && second.IsValid() && third.IsValid(),
+           "allocate three isolated scanner candidates");
+    if (!first.IsValid() || !second.IsValid() || !third.IsValid()) return;
+
+    const momo_secneo::ScanResult mismatch = momo_secneo::ScanAndPatchSelf();
+    Expect(mismatch.result == momo_secneo::PatchResult::kSignatureMismatch &&
+               mismatch.candidates.count == 3 && Contains(mismatch.candidates, first.Base()) &&
+               Contains(mismatch.candidates, second.Base()) && Contains(mismatch.candidates, third.Base()),
+           "mismatch scan includes every candidate identity");
+
+    first.Initialize();
+    second.Initialize();
+    third.Initialize();
+    const momo_secneo::ScanResult patched = momo_secneo::ScanAndPatchSelf();
+    Expect(patched.result == momo_secneo::PatchResult::kPatched && patched.candidates.count == 3 &&
+               Contains(patched.candidates, first.Base()) && Contains(patched.candidates, second.Base()) &&
+               Contains(patched.candidates, third.Base()),
+           "successful scan still includes all candidates after the first valid one");
+    const unsigned int patched_count =
+        (first.ReadInstruction(momo_secneo::kPatchOffset) == momo_secneo::kPatchedInstruction ? 1U : 0U) +
+        (second.ReadInstruction(momo_secneo::kPatchOffset) == momo_secneo::kPatchedInstruction ? 1U : 0U) +
+        (third.ReadInstruction(momo_secneo::kPatchOffset) == momo_secneo::kPatchedInstruction ? 1U : 0U);
+    Expect(patched_count == 1, "one scan patches at most one validated payload");
+
+    const momo_secneo::ScanResult already = momo_secneo::ScanAndPatchSelf();
+    Expect(already.result == momo_secneo::PatchResult::kAlreadyPatched && already.candidates.count == 3,
+           "already-patched scan also returns the complete candidate set");
+}
+
+void TestCandidateCapacity() {
+    PayloadMapping payloads[momo_secneo::kMaxPayloadCandidates + 1];
+    bool valid = true;
+    for (PayloadMapping& payload : payloads) {
+        valid = valid && payload.IsValid();
+        if (payload.IsValid()) payload.Initialize();
+    }
+    Expect(valid, "allocate enough isolated mappings to exceed candidate capacity");
+    if (!valid) return;
+
+    const momo_secneo::ScanResult overflow = momo_secneo::ScanAndPatchSelf();
+    Expect(overflow.result == momo_secneo::PatchResult::kCandidateOverflow &&
+               overflow.candidates.count == momo_secneo::kMaxPayloadCandidates && overflow.base == 0,
+           "capacity overflow returns a bounded diagnostic result");
+    bool untouched = true;
+    for (const PayloadMapping& payload : payloads) {
+        untouched = untouched && payload.ReadInstruction(momo_secneo::kPatchOffset) ==
+            momo_secneo::kOriginalInstruction;
+    }
+    Expect(untouched, "overflow is discovered before any candidate instruction is patched");
+
+    Expect(mprotect(reinterpret_cast<void*>(payloads[0].Base()), momo_secneo::kPayloadSize,
+                    PROT_READ | PROT_WRITE) == 0,
+           "remove one executable mapping to reach the exact candidate limit");
+    const momo_secneo::ScanResult at_limit = momo_secneo::ScanAndPatchSelf();
+    Expect(at_limit.result == momo_secneo::PatchResult::kPatched &&
+               at_limit.candidates.count == momo_secneo::kMaxPayloadCandidates &&
+               !Contains(at_limit.candidates, payloads[0].Base()),
+           "exact capacity succeeds and non-executable mappings remain excluded");
+}
+
+void TestCandidateIdentity() {
+    momo_secneo::CandidateSet first;
+    momo_secneo::CandidateSet reversed;
+    first.Add(0x1000);
+    first.Add(0x2000);
+    reversed.Add(0x2000);
+    reversed.Add(0x1000);
+    Expect(first.Equals(reversed), "candidate identity ignores enumeration order");
+    Expect(first.Add(0x1000) && first.count == 2, "duplicate map observations do not grow the set");
+    reversed.bases[0] = 0x3000;
+    Expect(!first.Equals(reversed), "candidate identity detects replacement at unchanged count");
+}
+
 }  // namespace
 
 int main() {
+    if (sysconf(_SC_PAGESIZE) != 4096) {
+        fprintf(stderr, "Fingerprint mapping harness requires 4096-byte pages.\n");
+        return 1;
+    }
     TestForcedScanBackoff();
     TestPatchPayload();
     TestScanner();
-    if (g_failures != 0) {
-        fprintf(stderr, "%d host test(s) failed\n", g_failures);
-        return 1;
-    }
-    printf("All SecNeo host tests passed.\n");
-    return 0;
+    TestCompleteCandidateSet();
+    TestCandidateCapacity();
+    TestCandidateIdentity();
+    printf("SecNeo fingerprints and scanner: %d checks, %d failures.\n", g_checks, g_failures);
+    return g_failures == 0 ? 0 : 1;
 }

@@ -1,20 +1,26 @@
 package com.rud.freemomo
 
+import android.app.Activity
 import android.app.Application
-import android.annotation.SuppressLint
 import android.content.Context
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import com.rud.freemomo.hook.CapabilityDiscovery
-import com.rud.freemomo.hook.ClassDescriptor
+import com.rud.freemomo.hook.ClassInventory
+import com.rud.freemomo.hook.DexInventoryReader
+import com.rud.freemomo.hook.DiscoveryCoordinator
+import com.rud.freemomo.hook.DiscoveryRetryPolicy
+import com.rud.freemomo.hook.DiscoveryScanner
 import com.rud.freemomo.hook.DiscoveryStatus
+import com.rud.freemomo.hook.DiscoveryTrigger
+import com.rud.freemomo.hook.HookCapability
 import com.rud.freemomo.hook.HookDiscoveryPolicy
+import com.rud.freemomo.hook.HookSignatures
 import com.rud.freemomo.hook.HookTargets
-import com.rud.freemomo.hook.MethodSignature
 import com.rud.freemomo.hook.SecNeoEarlyHook
-import com.rud.freemomo.hook.StructuralDiscoveryResult
-import com.rud.freemomo.hook.StructuralHookDiscovery
+import com.rud.freemomo.hook.UpdateHook
 import com.rud.freemomo.hook.UserLevelHook
 import com.rud.freemomo.hook.WordLimitDiscovery
 import com.rud.freemomo.hook.WordLimitHook
@@ -28,7 +34,7 @@ import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
-import java.lang.reflect.Modifier
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /** Xposed entry point for exact mappings and fail-closed structural Java discovery. */
@@ -74,7 +80,7 @@ class MomoHookEntry : IXposedHookLoadPackage {
                         if (!beginInstall()) return
 
                         try {
-                            doHook(context, classLoader)
+                            doHook(context, classLoader, param.thisObject as? Application)
                             installState.set(InstallState.INSTALLED)
                         } catch (error: Throwable) {
                             installState.set(InstallState.FAILED)
@@ -106,9 +112,16 @@ class MomoHookEntry : IXposedHookLoadPackage {
         }
     }
 
-    private fun doHook(context: Context, classLoader: ClassLoader) {
+    private fun doHook(context: Context, classLoader: ClassLoader, application: Application?) {
         val versionCode = context.packageManager
             .getPackageInfo(context.packageName, 0).longVersionCode.toInt()
+        try {
+            val installed = UpdateHook.apply(classLoader, versionCode)
+            XposedBridge.log("FreeMOMO: update:$versionCode install result -> $installed")
+        } catch (error: Throwable) {
+            ThrowablePolicy.rethrowIfFatal(error)
+            Logger.error("update:$versionCode independent install failed", error)
+        }
         val exact = HookDiscoveryPolicy.exactTargets(versionCode)
         if (exact != null) {
             // Exact versions never consume structural cache, including legacy range-scan entries.
@@ -127,163 +140,137 @@ class MomoHookEntry : IXposedHookLoadPackage {
 
         val cached = HookCache.loadSnapshot(context, versionCode, classLoader)
             ?: DiscoverySnapshot()
-        val cachedTargets = cached.targets
-        val installedCache = installTargets(cachedTargets, classLoader, "cached:$versionCode")
-        val current = cached.reconcileInstall(cachedTargets, installedCache)
-        if (current != cached) {
-            persist(context, versionCode, current)
-            XposedBridge.log(
-                "FreeMOMO: cached install failure returned capability to discovery -> " +
-                    describeSnapshot(current)
-            )
-        }
-        val snapshotState = AtomicReference(current)
-        val installedState = AtomicReference(installedCache)
-
-        if (current.hasPendingWordObservation) {
-            showToast(context, SEARCHING_MESSAGE)
-            observePendingWord(
-                context,
-                classLoader,
-                versionCode,
-                snapshotState,
-                installedState,
-                requireNotNull(current.wordLimit),
-                "cached:$versionCode"
-            )
-        }
-        if (!current.requiresStructuralScan) {
-            XposedBridge.log(
-                "FreeMOMO: structural scan skipped version=$versionCode -> " +
-                    describeSnapshot(current)
-            )
-            if (installedState.get().presentCapabilityCount == 4) {
-                showFoundIfNeeded(context, versionCode)
-            }
-            return
-        }
-
-        showToast(context, SEARCHING_MESSAGE)
-        discoverUnknownVersion(
-            context,
-            classLoader,
-            versionCode,
-            snapshotState,
-            installedState
-        )
-    }
-
-    private fun discoverUnknownVersion(
-        context: Context,
-        classLoader: ClassLoader,
-        versionCode: Int,
-        snapshotState: AtomicReference<DiscoverySnapshot>,
-        installedState: AtomicReference<HookTargets>
-    ) {
-        val startedAt = System.nanoTime()
-        val enumerateStartedAt = System.nanoTime()
-        val classNames = enumerateClassNames(classLoader)
-        val enumerateMillis = elapsedMillis(enumerateStartedAt)
-        val describeStartedAt = System.nanoTime()
-        val descriptors = describeClasses(classLoader, classNames)
-        val describeMillis = elapsedMillis(describeStartedAt)
-        val methodCount = descriptors.sumOf { it.uniqueMethods.size }
-        val discoveryStartedAt = System.nanoTime()
-        val discovery = StructuralHookDiscovery.discover(descriptors)
-        val discoveryMillis = elapsedMillis(discoveryStartedAt)
-        XposedBridge.log(
-            "FreeMOMO: structural scan version=$versionCode " +
-                "dexClasses=${classNames.size} describedClasses=${descriptors.size} " +
-                "methods=$methodCount enumerate=${enumerateMillis}ms " +
-                "describe=${describeMillis}ms discover=${discoveryMillis}ms " +
-                "elapsed=${elapsedMillis(startedAt)}ms"
-        )
-
-        val previous = snapshotState.get()
-        logNewDiscoveries(previous, discovery)
-        val merged = previous.fillUnknown(discovery)
-        val newlyDiscoveredTargets = HookTargets(
-            wordLimit = merged.targets.wordLimit.takeIf { previous.wordLimit == null },
-            display = merged.targets.display.takeIf { previous.display == null },
-            privilege = merged.targets.privilege.takeIf { previous.privilege == null },
-            cloud = merged.targets.cloud.takeIf { previous.cloud == null }
-        )
-        val installedNow = installTargets(
-            newlyDiscoveredTargets,
-            classLoader,
-            "discovered:$versionCode"
-        )
-        installedState.updateAndGet { installed -> mergeTargets(installed, installedNow) }
-        val reconciled = merged.reconcileInstall(newlyDiscoveredTargets, installedNow)
-        snapshotState.set(reconciled)
-        persist(context, versionCode, reconciled)
-
-        if (previous.wordLimit == null && reconciled.hasPendingWordObservation) {
-            observePendingWord(
-                context,
-                classLoader,
-                versionCode,
-                snapshotState,
-                installedState,
-                requireNotNull(reconciled.wordLimit),
-                "discovered:$versionCode"
-            )
-        }
-        if (installedState.get().presentCapabilityCount == 4) {
-            showFoundIfNeeded(context, versionCode)
-        }
-    }
-
-    private fun observePendingWord(
-        context: Context,
-        classLoader: ClassLoader,
-        versionCode: Int,
-        snapshotState: AtomicReference<DiscoverySnapshot>,
-        installedState: AtomicReference<HookTargets>,
-        pending: WordLimitDiscovery,
-        source: String
-    ) {
-        WordLimitHook().observe(
-            pending,
-            classLoader,
-            onDiscovered = { discovered ->
-                val target = requireNotNull(discovered.target)
-                val updated = snapshotState.updateAndGet {
-                    it.copy(wordLimit = discovered)
+        val scanner = DiscoveryScanner { className -> HookSignatures.describe(className, classLoader) }
+        // Probe prior failures before considering another full reflection pass.
+        val readableFailures = scanner.probeFailed(cached)
+        val inventoryStartedAt = System.nanoTime()
+        val inventory = DexInventoryReader.read(classLoader)
+        val inventoryMillis = elapsedMillis(inventoryStartedAt)
+        val initial = cached.forInventory(inventory.fingerprint)
+        val coordinator = DiscoveryCoordinator(
+            initial = initial,
+            installTargets = { installTargets(it, classLoader, "structural:$versionCode") },
+            installWordObservers = { pending, group ->
+                WordLimitHook().observe(pending, classLoader, group)
+            },
+            persist = { HookCache.saveSnapshot(context, it, versionCode) },
+            onChange = { before, after ->
+                if (before?.snapshot?.wordLimit != after.snapshot.wordLimit) {
+                    after.snapshot.wordLimit?.let(::logWordDiscovery)
                 }
-                installedState.updateAndGet { it.copy(wordLimit = target) }
-                persist(context, versionCode, updated)
-                XposedBridge.log("FreeMOMO: word-limit discovered -> ${target.displayName}")
-                if (installedState.get().presentCapabilityCount == 4) {
+                XposedBridge.log(
+                    "FreeMOMO: structural commit version=$versionCode -> " +
+                        describeSnapshot(after.snapshot) + " installed=" +
+                        describeCapabilities(after.installed)
+                )
+                if (after.installed.presentCapabilityCount == 4) {
                     showFoundIfNeeded(context, versionCode)
                 }
             },
-            onAmbiguous = { ambiguous ->
-                val updated = snapshotState.updateAndGet {
-                    it.copy(wordLimit = ambiguous)
-                }
-                installedState.updateAndGet { it.copy(wordLimit = null) }
-                persist(context, versionCode, updated)
-                XposedBridge.log(
-                    "FreeMOMO: word-limit ambiguous, disabled -> " +
-                        ambiguous.conflicts.joinToString { it.displayName }
-                )
-            }
-        ).also { installed ->
-            if (!installed) {
-                XposedBridge.log("FreeMOMO: word-limit $source observers unavailable")
+            onError = { Logger.error("structural installation/observer failure", it) }
+        )
+        val retryPolicy = DiscoveryRetryPolicy()
+        val current = coordinator.start().snapshot
+        if (current.requiresStructuralScan || current.hasPendingWordObservation) {
+            showToast(context, SEARCHING_MESSAGE)
+        }
+        discoverUnknownVersion(
+            classLoader, versionCode, coordinator, scanner, retryPolicy,
+            DiscoveryTrigger.ATTACH, inventory, readableFailures, inventoryMillis
+        )
+        if (coordinator.state().snapshot.requiresStructuralScan && application != null) {
+            scheduleDiscoveryRetries(application) { trigger ->
+                discoverUnknownVersion(classLoader, versionCode, coordinator, scanner, retryPolicy, trigger)
             }
         }
     }
 
-    private fun logNewDiscoveries(
-        previous: DiscoverySnapshot,
-        discovery: StructuralDiscoveryResult
+    private fun discoverUnknownVersion(
+        classLoader: ClassLoader,
+        versionCode: Int,
+        coordinator: DiscoveryCoordinator,
+        scanner: DiscoveryScanner,
+        retryPolicy: DiscoveryRetryPolicy,
+        trigger: DiscoveryTrigger,
+        initialInventory: ClassInventory? = null,
+        initialReadableFailures: Set<String>? = null,
+        initialInventoryMillis: Long = 0
     ) {
-        if (previous.display == null) logDiscovery("display", discovery.display)
-        if (previous.privilege == null) logDiscovery("privilege", discovery.privilege)
-        if (previous.cloud == null) logDiscovery("cloud", discovery.cloud)
-        if (previous.wordLimit == null) logWordDiscovery(discovery.wordLimit)
+        val startedAt = System.nanoTime()
+        val snapshot = coordinator.state().snapshot
+        val readable = initialReadableFailures ?: scanner.probeFailed(snapshot)
+        val inventoryStartedAt = System.nanoTime()
+        val inventory = initialInventory ?: DexInventoryReader.read(classLoader)
+        val inventoryMillis = if (initialInventory == null) elapsedMillis(inventoryStartedAt)
+            else initialInventoryMillis
+        val capabilities = retryPolicy.select(trigger, snapshot, readable, inventory)
+        if (capabilities.isEmpty()) {
+            XposedBridge.log(
+                "FreeMOMO: structural scan skipped version=$versionCode trigger=$trigger -> " +
+                    describeSnapshot(snapshot)
+            )
+            return
+        }
+        val scanStartedAt = System.nanoTime()
+        val scan = scanner.scan(capabilities, inventory)
+        val scanMillis = elapsedMillis(scanStartedAt)
+        scan.metadata.forEach { (capability, metadata) ->
+            if (!metadata.complete) {
+                XposedBridge.log(
+                    "FreeMOMO: ${capability.cacheKey} scan incomplete retry=${metadata.retryReason} " +
+                        "failedClasses=${metadata.failedClasses.size}"
+                )
+            } else {
+                when (capability) {
+                    HookCapability.WORD_LIMIT -> logWordDiscovery(scan.result.wordLimit)
+                    HookCapability.DISPLAY -> logDiscovery("display", scan.result.display)
+                    HookCapability.PRIVILEGE -> logDiscovery("privilege", scan.result.privilege)
+                    HookCapability.CLOUD -> logDiscovery("cloud", scan.result.cloud)
+                }
+            }
+        }
+        coordinator.publish(scan)
+        XposedBridge.log(
+            "FreeMOMO: structural scan version=$versionCode trigger=$trigger " +
+                "capabilities=${capabilities.joinToString { it.cacheKey }} " +
+                "dexClasses=${inventory.classNames.size} describedClasses=${scan.describedClassCount} " +
+                "methods=${scan.describedMethodCount} enumerate=${inventoryMillis}ms " +
+                "describe/discover=${scanMillis}ms " +
+                "elapsed=${elapsedMillis(startedAt) + initialInventoryMillis}ms"
+        )
+    }
+
+    private fun scheduleDiscoveryRetries(
+        application: Application,
+        retry: (DiscoveryTrigger) -> Unit
+    ) {
+        val resumed = AtomicBoolean(false)
+        application.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
+            override fun onActivityResumed(activity: Activity) {
+                if (!resumed.compareAndSet(false, true)) return
+                application.unregisterActivityLifecycleCallbacks(this)
+                Handler(Looper.getMainLooper()).postDelayed({
+                    runDiscoveryRetry { retry(DiscoveryTrigger.AFTER_RESUME_DELAY) }
+                }, 1_000L)
+                runDiscoveryRetry { retry(DiscoveryTrigger.FIRST_RESUME) }
+            }
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+            override fun onActivityStarted(activity: Activity) = Unit
+            override fun onActivityPaused(activity: Activity) = Unit
+            override fun onActivityStopped(activity: Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+            override fun onActivityDestroyed(activity: Activity) = Unit
+        })
+    }
+
+    private fun runDiscoveryRetry(retry: () -> Unit) {
+        try {
+            retry()
+        } catch (error: Throwable) {
+            ThrowablePolicy.rethrowIfFatal(error)
+            Logger.error("structural lifecycle retry failed", error)
+        }
     }
 
     private fun installTargets(
@@ -310,64 +297,6 @@ class MomoHookEntry : IXposedHookLoadPackage {
             "FreeMOMO: $source install result -> ${describeCapabilities(installed)}"
         )
         return installed
-    }
-
-    private fun describeClasses(
-        classLoader: ClassLoader,
-        classNames: List<String>
-    ): List<ClassDescriptor> = classNames.mapNotNull { className ->
-        try {
-            val cls = Class.forName(className, false, classLoader)
-            val methods = cls.declaredMethods
-                .asSequence()
-                .filterNot { it.isSynthetic || it.isBridge }
-                .map { method ->
-                    MethodSignature(
-                        className = cls.name,
-                        methodName = method.name,
-                        parameterTypes = method.parameterTypes.map { it.name },
-                        returnType = method.returnType.name,
-                        isStatic = Modifier.isStatic(method.modifiers)
-                    )
-                }
-                .toList()
-            ClassDescriptor(cls.name, methods)
-        } catch (error: Throwable) {
-            ThrowablePolicy.rethrowIfFatal(error)
-            if (BuildConfig.DEBUG) {
-                Logger.error("structural class rejected: $className", error)
-            }
-            null
-        }
-    }
-
-    // The hardened target exposes Dex elements only through this private runtime adapter.
-    @SuppressLint("DiscouragedPrivateApi")
-    @Suppress("DEPRECATION")
-    private fun enumerateClassNames(classLoader: ClassLoader): List<String> {
-        val result = linkedSetOf<String>()
-        try {
-            val pathListField = Class.forName("dalvik.system.BaseDexClassLoader")
-                .getDeclaredField("pathList")
-            pathListField.isAccessible = true
-            val dexPathList = pathListField.get(classLoader)
-            val dexElementsField = dexPathList.javaClass.getDeclaredField("dexElements")
-            dexElementsField.isAccessible = true
-            val dexElements = dexElementsField.get(dexPathList) as Array<*>
-
-            dexElements.filterNotNull().forEach { element ->
-                val dexFileField = element.javaClass.getDeclaredField("dexFile")
-                dexFileField.isAccessible = true
-                val dexFile = dexFileField.get(element) as? dalvik.system.DexFile ?: return@forEach
-                val entries = dexFile.entries()
-                while (entries.hasMoreElements()) result += entries.nextElement()
-            }
-        } catch (error: Throwable) {
-            ThrowablePolicy.rethrowIfFatal(error)
-            Logger.error("structural class enumeration failed", error)
-            throw IllegalStateException("Structural class enumeration failed", error)
-        }
-        return result.toList()
     }
 
     private fun <T> logDiscovery(label: String, result: CapabilityDiscovery<T>) {
@@ -398,21 +327,6 @@ class MomoHookEntry : IXposedHookLoadPackage {
                     .orEmpty()
         )
     }
-
-    private fun persist(
-        context: Context,
-        versionCode: Int,
-        snapshot: DiscoverySnapshot
-    ) {
-        HookCache.saveSnapshot(context, snapshot, versionCode)
-    }
-
-    private fun mergeTargets(current: HookTargets, added: HookTargets): HookTargets = HookTargets(
-        wordLimit = current.wordLimit ?: added.wordLimit,
-        display = current.display ?: added.display,
-        privilege = current.privilege ?: added.privilege,
-        cloud = current.cloud ?: added.cloud
-    )
 
     private fun describeCapabilities(targets: HookTargets): String = listOf(
         "word=${targets.wordLimit != null}",

@@ -81,6 +81,14 @@ data class HookTargets(
                 privilegeSingleMethods = listOf("k", "m"),
                 privilegeTwoArgumentMethod = "l",
                 cloudClass = "y95"
+            ),
+            // 5.6.00: verified at runtime; extra privilege helpers defeat structural discovery.
+            900 to exactTargets(
+                wordMethod = "s",
+                displayClass = "dgb",
+                privilegeSingleMethods = listOf("k", "m"),
+                privilegeTwoArgumentMethod = "l",
+                cloudClass = "ej7"
             )
         )
 

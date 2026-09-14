@@ -108,7 +108,7 @@ jobs:
       - name: Run unit tests, lint, and Android builds
         shell: pwsh
         run: |
-          .\gradlew.bat testDebugUnitTest lintDebug assembleDebug assembleRelease --no-daemon --console=plain
+          .\gradlew.bat testDebugUnitTest testReleaseUnitTest lintDebug lintRelease assembleDebug assembleRelease --no-daemon --console=plain
           if ($LASTEXITCODE -ne 0) {
             throw "Gradle validation failed with exit code $LASTEXITCODE"
           }
@@ -117,7 +117,7 @@ jobs:
         shell: pwsh
         run: |
           $env:ANDROID_NDK_HOME = Join-Path $env:ANDROID_SDK_ROOT "ndk\$env:ANDROID_NDK_VERSION"
-          .\zygisk-companion\build.ps1 -NdkPath $env:ANDROID_NDK_HOME
+          .\zygisk-companion\build.ps1 -NdkPath $env:ANDROID_NDK_HOME -BuildSubdirectory 'release-package'
           if ($LASTEXITCODE -ne 0) {
             throw "Zygisk build failed with exit code $LASTEXITCODE"
           }
@@ -197,7 +197,7 @@ jobs:
       - name: Prepare direct release assets
         shell: pwsh
         run: |
-          $zygisk = @(Get-ChildItem -LiteralPath 'zygisk-companion/build' -Filter 'freemomo-zygisk-*.zip' -File)
+          $zygisk = @(Get-ChildItem -LiteralPath 'zygisk-companion/build/release-package' -Filter 'freemomo-zygisk-*.zip' -File)
           if ($zygisk.Count -ne 1) {
             throw "Expected one Zygisk ZIP, found $($zygisk.Count)"
           }
@@ -245,10 +245,27 @@ jobs:
         run: |
           test -f build/release/freemomo.apk
           test -f build/release/freemomo-zygisk.zip
-          gh release create "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --verify-tag \
-            --title "FreeMOMO $APP_VERSION" \
-            --generate-notes \
-            build/release/freemomo.apk \
-            build/release/freemomo-zygisk.zip
+          if draft_state=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$draft_state" != "true" ]; then
+              echo "Release $GITHUB_REF_NAME is already published" >&2
+              exit 1
+            fi
+            gh release upload "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber \
+              build/release/freemomo.apk \
+              build/release/freemomo-zygisk.zip
+            gh release edit "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "FreeMOMO $APP_VERSION" \
+              --draft=false \
+              --latest
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "FreeMOMO $APP_VERSION" \
+              --generate-notes \
+              build/release/freemomo.apk \
+              build/release/freemomo-zygisk.zip
+          fi

@@ -2,104 +2,21 @@ package com.rud.freemomo.util
 
 import android.content.Context
 import com.rud.freemomo.hook.CapabilityDiscovery
+import com.rud.freemomo.hook.CapabilityScanMetadata
 import com.rud.freemomo.hook.DiscoveryStatus
 import com.rud.freemomo.hook.DisplayHookTargets
+import com.rud.freemomo.hook.HookCapability
+import com.rud.freemomo.hook.HookSignatures
 import com.rud.freemomo.hook.HookTargets
 import com.rud.freemomo.hook.MethodSignature
 import com.rud.freemomo.hook.PrivilegeHookTargets
-import com.rud.freemomo.hook.StructuralDiscoveryResult
+import com.rud.freemomo.hook.ScanRetryReason
 import com.rud.freemomo.hook.WordLimitDiscovery
 import de.robv.android.xposed.XposedBridge
-import java.lang.reflect.Modifier
-
-/**
- * Per-capability discovery state. A null entry means that capability is unknown and must be
- * structurally discovered. Terminal failures and pending word candidates are complete states.
- */
-data class DiscoverySnapshot(
-    val wordLimit: WordLimitDiscovery? = null,
-    val display: CapabilityDiscovery<DisplayHookTargets>? = null,
-    val privilege: CapabilityDiscovery<PrivilegeHookTargets>? = null,
-    val cloud: CapabilityDiscovery<MethodSignature>? = null
-) {
-    val targets: HookTargets = HookTargets(
-        wordLimit = wordLimit?.target.takeIf {
-            wordLimit?.status == DiscoveryStatus.DISCOVERED
-        },
-        display = display?.target.takeIf { display?.status == DiscoveryStatus.DISCOVERED },
-        privilege = privilege?.target.takeIf {
-            privilege?.status == DiscoveryStatus.DISCOVERED
-        },
-        cloud = cloud?.target.takeIf { cloud?.status == DiscoveryStatus.DISCOVERED }
-    )
-
-    val requiresStructuralScan: Boolean
-        get() = wordLimit == null || display == null || privilege == null || cloud == null
-
-    val hasPendingWordObservation: Boolean
-        get() = wordLimit?.status == DiscoveryStatus.PENDING &&
-            wordLimit.candidates.isNotEmpty()
-
-    fun fillUnknown(result: StructuralDiscoveryResult): DiscoverySnapshot = copy(
-        wordLimit = wordLimit ?: result.wordLimit,
-        display = display ?: result.display,
-        privilege = privilege ?: result.privilege,
-        cloud = cloud ?: result.cloud
-    )
-
-    /** A discovered target remains cached only after that exact requested Hook installs. */
-    fun reconcileInstall(requested: HookTargets, installed: HookTargets): DiscoverySnapshot = copy(
-        wordLimit = wordLimit.takeUnless {
-            requested.wordLimit != null && installed.wordLimit != requested.wordLimit
-        },
-        display = display.takeUnless {
-            requested.display != null && installed.display != requested.display
-        },
-        privilege = privilege.takeUnless {
-            requested.privilege != null && installed.privilege != requested.privilege
-        },
-        cloud = cloud.takeUnless {
-            requested.cloud != null && installed.cloud != requested.cloud
-        }
-    )
-
-    companion object {
-        fun fromTargets(targets: HookTargets): DiscoverySnapshot = DiscoverySnapshot(
-            wordLimit = targets.wordLimit?.let { target ->
-                WordLimitDiscovery(
-                    status = DiscoveryStatus.DISCOVERED,
-                    target = target,
-                    candidates = listOf(target)
-                )
-            },
-            display = targets.display?.let { target ->
-                CapabilityDiscovery(
-                    status = DiscoveryStatus.DISCOVERED,
-                    target = target,
-                    candidates = target.methods
-                )
-            },
-            privilege = targets.privilege?.let { target ->
-                CapabilityDiscovery(
-                    status = DiscoveryStatus.DISCOVERED,
-                    target = target,
-                    candidates = target.methods
-                )
-            },
-            cloud = targets.cloud?.let { target ->
-                CapabilityDiscovery(
-                    status = DiscoveryStatus.DISCOVERED,
-                    target = target,
-                    candidates = listOf(target)
-                )
-            }
-        )
-    }
-}
 
 /** Versioned, strict cache for structural discovery state and Java method identities. */
 object HookCache {
-    internal const val SCHEMA_VERSION = 3
+    internal const val SCHEMA_VERSION = 4
     private const val PREFS_NAME = "momo_hook_cache"
     private const val KEY_SCHEMA = "structural_schema"
     private const val KEY_VERSION_CODE = "structural_version_code"
@@ -134,7 +51,7 @@ object HookCache {
         }
         val validated = validateSnapshot(
             snapshot = decoded,
-            verifier = { signature -> resolvesExactly(signature, classLoader) },
+            verifier = { signature -> HookSignatures.resolve(signature, classLoader) != null },
             declaredWordCandidates = declaredWords
         )
         if (validated != decoded) {
@@ -142,7 +59,7 @@ object HookCache {
                 "FreeMOMO: cache rejected invalid capabilities -> " +
                     rejectedCapabilities(decoded, validated)
             )
-            saveSnapshot(context, validated, versionCode)
+            // The coordinator persists validation and installation together, in commit order.
         } else {
             XposedBridge.log(
                 "FreeMOMO: discovery snapshot cached -> version=$versionCode " +
@@ -202,6 +119,9 @@ object HookCache {
         putCapability(values, "cloud", snapshot.cloud) { target ->
             putSignature(values, "cloud.target.0", target)
         }
+        snapshot.scanMetadata.forEach { (capability, metadata) ->
+            putScanMetadata(values, capability, metadata)
+        }
         return values
     }
 
@@ -211,26 +131,29 @@ object HookCache {
     ): DiscoverySnapshot? {
         if (values[KEY_SCHEMA]?.toIntOrNull() != SCHEMA_VERSION) return null
         if (values[KEY_VERSION_CODE]?.toIntOrNull() != versionCode) return null
-        return DiscoverySnapshot(
+        return discardIncompleteStates(DiscoverySnapshot(
             wordLimit = decodeWord(values),
             display = decodeDisplay(values),
             privilege = decodePrivilege(values),
-            cloud = decodeCloud(values)
-        )
+            cloud = decodeCloud(values),
+            scanMetadata = HookCapability.entries.mapNotNull { capability ->
+                decodeScanMetadata(values, capability)?.let { capability to it }
+            }.toMap()
+        ))
     }
 
     internal fun validate(
         targets: HookTargets,
         verifier: (MethodSignature) -> Boolean
     ): HookTargets = HookTargets(
-        wordLimit = targets.wordLimit?.takeIf { isWordTarget(it) && verifier(it) },
+        wordLimit = targets.wordLimit?.takeIf { HookSignatures.isWord(it) && verifier(it) },
         display = targets.display?.takeIf { group ->
-            isDisplayTarget(group) && group.methods.all(verifier)
+            HookSignatures.isDisplay(group) && group.methods.all(verifier)
         },
         privilege = targets.privilege?.takeIf { group ->
-            isPrivilegeTarget(group) && group.methods.all(verifier)
+            HookSignatures.isPrivilege(group) && group.methods.all(verifier)
         },
-        cloud = targets.cloud?.takeIf { isCloudTarget(it) && verifier(it) }
+        cloud = targets.cloud?.takeIf { HookSignatures.isCloud(it) && verifier(it) }
     )
 
     internal fun validateSnapshot(
@@ -238,23 +161,24 @@ object HookCache {
         verifier: (MethodSignature) -> Boolean,
         declaredWordCandidates: List<MethodSignature>
     ): DiscoverySnapshot {
-        val targetValidation = validate(snapshot.targets, verifier)
-        return snapshot.copy(
+        val trusted = discardIncompleteStates(snapshot)
+        val targetValidation = validate(trusted.targets, verifier)
+        return trusted.copy(
             wordLimit = validateWordDiscovery(
-                snapshot.wordLimit,
+                trusted.wordLimit,
                 declaredWordCandidates,
                 verifier
             ),
             display = validateCapability(
-                snapshot.display,
+                trusted.display,
                 targetValidation.display != null
             ),
             privilege = validateCapability(
-                snapshot.privilege,
+                trusted.privilege,
                 targetValidation.privilege != null
             ),
             cloud = validateCapability(
-                snapshot.cloud,
+                trusted.cloud,
                 targetValidation.cloud != null
             )
         )
@@ -264,8 +188,64 @@ object HookCache {
     internal fun isReusableWordTarget(
         target: MethodSignature,
         declaredCandidates: List<MethodSignature>
-    ): Boolean = isWordTarget(target) &&
-        declaredCandidates.filter(::isWordTarget).distinct().singleOrNull() == target
+    ): Boolean = HookSignatures.isWord(target) &&
+        declaredCandidates.filter(HookSignatures::isWord).distinct().singleOrNull() == target
+
+    private fun putScanMetadata(
+        values: MutableMap<String, String>,
+        capability: HookCapability,
+        metadata: CapabilityScanMetadata
+    ) {
+        val prefix = "${capability.cacheKey}.scan"
+        values["$prefix.complete"] = metadata.complete.toString()
+        values["$prefix.enumeration_complete"] = metadata.enumerationComplete.toString()
+        values["$prefix.attempts"] = metadata.attempts.toString()
+        metadata.inventoryFingerprint?.let { values["$prefix.inventory"] = it }
+        metadata.retryReason?.let { values["$prefix.retry"] = it.name }
+        values["$prefix.failed_count"] = metadata.failedClasses.size.toString()
+        metadata.failedClasses.sorted().forEachIndexed { index, className ->
+            values["$prefix.failed.$index"] = className
+        }
+    }
+
+    private fun decodeScanMetadata(
+        values: Map<String, String>,
+        capability: HookCapability
+    ): CapabilityScanMetadata? = try {
+        val prefix = "${capability.cacheKey}.scan"
+        if ("$prefix.complete" !in values) {
+            null
+        } else {
+            val count = required(values, "$prefix.failed_count").toInt()
+            require(count in 0..200_000)
+            CapabilityScanMetadata(
+                complete = requiredBoolean(values, "$prefix.complete"),
+                failedClasses = (0 until count).mapTo(linkedSetOf()) {
+                    required(values, "$prefix.failed.$it")
+                },
+                inventoryFingerprint = values["$prefix.inventory"],
+                enumerationComplete = requiredBoolean(values, "$prefix.enumeration_complete"),
+                attempts = required(values, "$prefix.attempts").toInt(),
+                retryReason = values["$prefix.retry"]?.let(ScanRetryReason::valueOf)
+            )
+        }
+    } catch (_: IllegalArgumentException) {
+        null
+    }
+
+    private fun discardIncompleteStates(snapshot: DiscoverySnapshot): DiscoverySnapshot {
+        val statuses = mapOf(
+            HookCapability.WORD_LIMIT to snapshot.wordLimit?.status,
+            HookCapability.DISPLAY to snapshot.display?.status,
+            HookCapability.PRIVILEGE to snapshot.privilege?.status,
+            HookCapability.CLOUD to snapshot.cloud?.status
+        )
+        val untrusted = statuses.filter { (capability, status) ->
+            val metadata = snapshot.scanMetadata[capability]
+            status != null && metadata?.isCompleteFor(capability) != true
+        }.keys
+        return snapshot.clear(untrusted)
+    }
 
     private fun putWord(
         values: MutableMap<String, String>,
@@ -451,9 +431,9 @@ object HookCache {
             return discovery
         }
         val cachedCandidates = discovery.candidates
-        val declaredExact = declaredCandidates.filter(::isWordTarget).distinct()
+        val declaredExact = declaredCandidates.filter(HookSignatures::isWord).distinct()
         if (cachedCandidates.isEmpty() || cachedCandidates.distinct().size != cachedCandidates.size ||
-            cachedCandidates.any { !isWordTarget(it) || !verifier(it) } ||
+            cachedCandidates.any { !HookSignatures.isWord(it) || !verifier(it) } ||
             cachedCandidates.toSet() != declaredExact.toSet()
         ) {
             return null
@@ -462,7 +442,7 @@ object HookCache {
             return discovery.copy(target = null)
         }
         val target = discovery.target
-            ?.takeIf { it in cachedCandidates && isWordTarget(it) && verifier(it) }
+            ?.takeIf { it in cachedCandidates && HookSignatures.isWord(it) && verifier(it) }
             ?: return null
         return if (cachedCandidates.size == 1) {
             discovery.copy(target = target)
@@ -486,55 +466,12 @@ object HookCache {
         }
     }
 
-    private fun resolvesExactly(
-        signature: MethodSignature,
-        classLoader: ClassLoader
-    ): Boolean = try {
-        val declaringClass = Class.forName(signature.className, false, classLoader)
-        val parameterTypes = signature.parameterTypes.map { typeName ->
-            resolveType(typeName, classLoader)
-        }.toTypedArray()
-        val method = declaringClass.getDeclaredMethod(signature.methodName, *parameterTypes)
-        method.returnType.name == signature.returnType &&
-            Modifier.isStatic(method.modifiers) == signature.isStatic
-    } catch (error: Throwable) {
-        ThrowablePolicy.rethrowIfFatal(error)
-        false
-    }
-
     private fun declaredWordCandidates(classLoader: ClassLoader): List<MethodSignature> = try {
-        val declaringClass = Class.forName(HookTargets.WORD_LIMIT_CLASS, false, classLoader)
-        declaringClass.declaredMethods
-            .asSequence()
-            .filterNot { it.isSynthetic || it.isBridge }
-            .map { method ->
-                MethodSignature(
-                    className = declaringClass.name,
-                    methodName = method.name,
-                    parameterTypes = method.parameterTypes.map { it.name },
-                    returnType = method.returnType.name,
-                    isStatic = Modifier.isStatic(method.modifiers)
-                )
-            }
-            .toList()
+        HookSignatures.describe(HookTargets.WORD_LIMIT_CLASS, classLoader).methods
     } catch (error: Throwable) {
         ThrowablePolicy.rethrowIfFatal(error)
         emptyList()
     }
-
-    internal fun resolveType(typeName: String, classLoader: ClassLoader): Class<*> =
-        when (typeName) {
-            "boolean" -> Boolean::class.javaPrimitiveType!!
-            "byte" -> Byte::class.javaPrimitiveType!!
-            "char" -> Char::class.javaPrimitiveType!!
-            "double" -> Double::class.javaPrimitiveType!!
-            "float" -> Float::class.javaPrimitiveType!!
-            "int" -> Int::class.javaPrimitiveType!!
-            "long" -> Long::class.javaPrimitiveType!!
-            "short" -> Short::class.javaPrimitiveType!!
-            "void" -> Void.TYPE
-            else -> Class.forName(typeName, false, classLoader)
-        }
 
     private fun rejectedCapabilities(
         before: DiscoverySnapshot,
@@ -552,46 +489,4 @@ object HookCache {
         "privilege=${snapshot.privilege?.status?.name ?: UNKNOWN}",
         "cloud=${snapshot.cloud?.status?.name ?: UNKNOWN}"
     ).joinToString()
-
-    private fun isWordTarget(target: MethodSignature): Boolean =
-        target.className == HookTargets.WORD_LIMIT_CLASS &&
-            target.parameterTypes.isEmpty() &&
-            target.returnType == HookTargets.INT &&
-            target.isStatic
-
-    private fun isDisplayTarget(target: DisplayHookTargets): Boolean {
-        val short = target.twoArgumentMethod
-        val detailed = target.detailedMethod
-        return short.className == detailed.className &&
-            short.isStatic && short.returnType == HookTargets.VOID &&
-            short.parameterTypes == listOf(HookTargets.TEXT_VIEW, HookTargets.INT) &&
-            detailed.isStatic && detailed.returnType == HookTargets.VOID &&
-            detailed.parameterTypes == listOf(
-                HookTargets.TEXT_VIEW,
-                HookTargets.INT,
-                HookTargets.BOOLEAN,
-                HookTargets.FLOAT
-            )
-    }
-
-    private fun isPrivilegeTarget(target: PrivilegeHookTargets): Boolean =
-        target.methods.all { method ->
-            method.className == HookTargets.PRIVILEGE_CLASS &&
-                method.isStatic &&
-                method.returnType == HookTargets.BOOLEAN
-        } &&
-            target.singleArgumentMethods.all {
-                it.parameterTypes == listOf(HookTargets.PRIVILEGE_CODE)
-            } &&
-            target.twoArgumentMethod.parameterTypes == listOf(
-                HookTargets.PRIVILEGE_CODE,
-                HookTargets.BOOLEAN
-            )
-
-    private fun isCloudTarget(target: MethodSignature): Boolean =
-        '.' !in target.className &&
-            '$' !in target.className &&
-            target.parameterTypes.isEmpty() &&
-            target.returnType == HookTargets.INT &&
-            target.isStatic
 }
