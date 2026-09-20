@@ -19,7 +19,14 @@ fi
 build_dir=$(mktemp -d "${TMPDIR:-/tmp}/momo-secneo-host.XXXXXX")
 trap 'rm -rf -- "$build_dir"' EXIT HUP INT TERM
 
-for test_name in secneo_patch_host_test monitor_policy_host_test; do
+common_sources="
+    $project_dir/jni/secneo_patch.cpp
+    $project_dir/jni/monitor_policy.cpp
+    $project_dir/jni/monitor_runner.cpp
+    $project_dir/jni/monitor_process_guard.cpp
+"
+
+for test_name in secneo_patch_host_test monitor_policy_host_test monitor_runner_host_test monitor_process_guard_host_test; do
     "$compiler" \
     -std=c++17 \
     -D_DEFAULT_SOURCE \
@@ -30,10 +37,10 @@ for test_name in secneo_patch_host_test monitor_policy_host_test; do
     -Werror \
     -fno-exceptions \
     -fno-rtti \
+    -pthread \
     -I"$project_dir/jni" \
     "$project_dir/tests/$test_name.cpp" \
-    "$project_dir/jni/secneo_patch.cpp" \
-    "$project_dir/jni/monitor_policy.cpp" \
+    $common_sources \
     -o "$build_dir/$test_name"
 
     "$build_dir/$test_name"

@@ -1,4 +1,4 @@
-# FreeMOMO
+# FreeMOMO![Downloads](https://img.shields.io/github/downloads/Xposed-Modules-Repo/com.rud.freemomo/total) ![Downloads](https://img.shields.io/github/downloads/RRRRUDDDD/FreeMOMO/total)
 
 FreeMOMO 是一个配合 LSPosed 与 Zygisk 使用的墨墨背单词增强模块，用于修改单词上限、用户等级和相关权限。
 

@@ -25,3 +25,4 @@ local.properties
 /zygisk-companion/build/
 /zygisk-companion/libs/
 /zygisk-companion/obj/
+.ccg/

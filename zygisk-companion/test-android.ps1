@@ -73,7 +73,7 @@ if ($LASTEXITCODE -ne 0 -or "$pageSize".Trim() -ne '4096') {
 "Device: $DeviceSerial; ABI: $abi; page size: $pageSize" |
     Tee-Object -FilePath (Join-Path $buildDirectory 'device.log')
 
-$testNames = @('secneo_patch_host_test', 'monitor_policy_host_test')
+$testNames = @('secneo_patch_host_test', 'monitor_policy_host_test', 'monitor_runner_host_test', 'monitor_process_guard_host_test')
 $commonArguments = @(
     '--target=aarch64-linux-android28', "--sysroot=$sysroot", '-std=c++17',
     '-D_DEFAULT_SOURCE', '-O2', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
@@ -85,6 +85,9 @@ foreach ($testName in $testNames) {
         (Join-Path $PSScriptRoot "tests/$testName.cpp"),
         (Join-Path $jniDirectory 'secneo_patch.cpp'),
         (Join-Path $jniDirectory 'monitor_policy.cpp'),
+        (Join-Path $jniDirectory 'monitor_runner.cpp'),
+        (Join-Path $jniDirectory 'monitor_process_guard.cpp'),
+        '-pthread',
         '-o', (Join-Path $buildDirectory $testName)
     )
     Invoke-LoggedNative -Executable $compiler -Arguments $compilerArguments `
@@ -111,7 +114,10 @@ try {
 } finally {
     # Remove only our named executables and then the empty, uniquely named directory.
     & $AdbPath @adbPrefix shell rm -f "$remoteDirectory/secneo_patch_host_test" `
-        "$remoteDirectory/monitor_policy_host_test"
+        "$remoteDirectory/monitor_policy_host_test" `
+        "$remoteDirectory/monitor_runner_host_test" `
+        "$remoteDirectory/monitor_process_guard_host_test"
     & $AdbPath @adbPrefix shell rmdir $remoteDirectory
 }
 Write-Host "Standalone native test logs: $buildDirectory"
+

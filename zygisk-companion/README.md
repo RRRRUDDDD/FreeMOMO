@@ -5,9 +5,22 @@ This arm64 Zygisk API v4 module is the native companion for
 `com.maimemo.android.momo`, keeps the existing LSPosed business hooks, and moves only the
 SecNeo maps branch patch early enough to run before SecNeo forks its detector child.
 
-The target process starts one detached monitor from `postAppSpecialize`. Non-target app
-processes request `DLCLOSE_MODULE_LIBRARY` during `preAppSpecialize`. The monitor scans only
-`/proc/self/maps`; it does not enumerate or write another PID. A candidate must be an anonymous
+The target process starts one detached monitor from `postAppSpecialize`, and also installs an
+inherited fork-child guard. Non-target app processes request `DLCLOSE_MODULE_LIBRARY` during
+`preAppSpecialize`. Isolated processes whose nice name is `com.maimemo.android.momo:<name>`
+are treated as targets. The monitor scans only `/proc/self/maps`; it does not enumerate or
+write another PID.
+
+SecNeo's detector is a later fork/clone of the already-specialized app process, so Zygisk
+does not run `postAppSpecialize` again. The guard records the owner pid and installs
+`SIGSEGV`/`SIGABRT`/`SIGBUS`/`SIGTRAP`/`SIGSYS` handlers plus `pthread_atfork`. In the
+owner, those signals still chain to the previous handler (including ART). In a child, a
+fatal fault `_exit(0)` so the parent does not observe `SIGSEGV` and tear down the app. The
+atfork child also reapplies the same self maps patch on copy-on-write pages. Raw `clone`
+syscalls skip `pthread_atfork` but still inherit the pid-guarded handlers. The crash
+handler does not log.
+
+A candidate must be an anonymous
 `0x117000 rwxp` mapping with ELF magic and all nine instruction signatures. Only then is
 `payload + 0x1d744` changed from `0x54001741` to `0x34ff9e90`.
 
@@ -55,7 +68,10 @@ process. It covers the original and already-patched fingerprints, invalid size a
 all nine mismatch points, complete multi-candidate scans, and overflow before any write.
 The monitor-policy harness injects monotonic timestamps and scan results to test disappearance,
 replacement, membership changes, reordered sets, skipped polls, 20 ms and 10-second boundaries,
-backoff, terminal scan results, and unsupported page sizes. A failed check exits nonzero.
+backoff, terminal scan results, and unsupported page sizes. The process-guard harness forks
+real children: the owner still dies on a null-offset fault, a child converts that fault into
+exit status 0, and an inherited payload mapping is patched only in the child. A failed check
+exits nonzero.
 
 On Windows, run the same standalone harnesses on an existing arm64 Android device with 4096-byte
 pages, using NDK 21.4 and adb (paths can be set with `-NdkPath` and `-AdbPath`):
