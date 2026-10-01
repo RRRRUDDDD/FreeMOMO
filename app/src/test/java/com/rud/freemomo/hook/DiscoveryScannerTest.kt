@@ -167,4 +167,23 @@ class DiscoveryScannerTest {
             )
         }
     }
+
+    @Test
+    fun `raw diagnostic evidence never escapes through the installable scan result`() {
+        val display = requireNotNull(known.display)
+        val scanner = DiscoveryScanner { name ->
+            if (name == "unreadable") throw LinkageError("dependency")
+            ClassDescriptor(name, display.methods)
+        }
+        var evidence: StructuralDiscoveryResult? = null
+        val scan = scanner.scan(
+            setOf(HookCapability.DISPLAY),
+            ClassInventory(listOf(display.twoArgumentMethod.className, "unreadable"), "same", true)
+        ) { evidence = it }
+        assertEquals(display, evidence?.targets?.display)
+        assertEquals(DiscoveryStatus.PENDING, scan.result.display.status)
+        assertNull(scan.result.targets.display)
+        assertNull(DiscoverySnapshot().fillUnknown(scan).targets.display)
+    }
+
 }

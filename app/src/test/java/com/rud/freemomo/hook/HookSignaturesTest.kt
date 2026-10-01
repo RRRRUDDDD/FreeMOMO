@@ -29,6 +29,23 @@ class HookSignaturesTest {
     }
 
     @Test
+    fun throwingResolverDistinguishesMissingClassesMembersAndMismatches() {
+        assertEquals(exact, HookSignatures.signature(HookSignatures.requireMethod(exact, loader)))
+        assertThrows(ClassNotFoundException::class.java) {
+            HookSignatures.requireMethod(exact.copy(className = "does.not.Exist"), loader)
+        }
+        assertThrows(NoSuchMethodException::class.java) {
+            HookSignatures.requireMethod(exact.copy(methodName = "missing"), loader)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            HookSignatures.requireMethod(exact.copy(returnType = "long"), loader)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            HookSignatures.requireMethod(exact.copy(isStatic = false), loader)
+        }
+    }
+
+    @Test
     fun `cache and installers share atomic privilege group validation`() {
         val known = requireNotNull(HookTargets.builtIn(898))
         val privilege = requireNotNull(known.privilege)

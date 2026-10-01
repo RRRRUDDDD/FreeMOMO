@@ -155,7 +155,7 @@ if ($versionProperties.Count -ne 1) {
     throw "Expected exactly one version property in: $moduleProperty"
 }
 $moduleVersion = $versionProperties[0].Substring('version='.Length).Trim()
-if ($moduleVersion -notmatch '^[0-9]+(?:\.[0-9]+){2}(?:[-+][0-9A-Za-z.-]+)?$') {
+if ($moduleVersion -notmatch '^[0-9]+(?:\.[0-9]+){1,2}(?:[-+][0-9A-Za-z.-]+)?$') {
     throw "Invalid module version '$moduleVersion' in: $moduleProperty"
 }
 
