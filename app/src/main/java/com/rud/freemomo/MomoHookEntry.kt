@@ -11,6 +11,7 @@ import com.rud.freemomo.hook.CapabilityDiscovery
 import com.rud.freemomo.hook.ClassInventory
 import com.rud.freemomo.hook.DexInventoryReader
 import com.rud.freemomo.hook.DiscoveryCoordinator
+import com.rud.freemomo.hook.DiscoveryDiagnostics
 import com.rud.freemomo.hook.DiscoveryRetryPolicy
 import com.rud.freemomo.hook.DiscoveryScanner
 import com.rud.freemomo.hook.DiscoveryStatus
@@ -52,6 +53,7 @@ class MomoHookEntry : IXposedHookLoadPackage {
         private const val SEARCHING_MESSAGE = "FreeMOMO 正在寻找 Hook 函数..."
         private const val FOUND_MESSAGE = "FreeMOMO 已找到 Hook 函数"
         private val installState = AtomicReference(InstallState.IDLE)
+        private val diagnostics = DiscoveryDiagnostics()
     }
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
@@ -115,6 +117,15 @@ class MomoHookEntry : IXposedHookLoadPackage {
     private fun doHook(context: Context, classLoader: ClassLoader, application: Application?) {
         val versionCode = context.packageManager
             .getPackageInfo(context.packageName, 0).longVersionCode.toInt()
+        if (BuildConfig.DEBUG) {
+            diagnostics.run(
+                debugBuild = BuildConfig.DEBUG,
+                versionCode = versionCode,
+                inventory = { DexInventoryReader.read(classLoader) },
+                describeClass = { HookSignatures.describe(it, classLoader) },
+                log = { XposedBridge.log(it) }
+            )
+        }
         try {
             val installed = UpdateHook.apply(classLoader, versionCode)
             XposedBridge.log("FreeMOMO: update:$versionCode install result -> $installed")

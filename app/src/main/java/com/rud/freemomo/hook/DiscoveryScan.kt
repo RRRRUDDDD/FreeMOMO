@@ -53,7 +53,11 @@ class DiscoveryScanner(private val describeClass: (String) -> ClassDescriptor) {
         .distinct()
         .filterTo(linkedSetOf()) { describeOrNull(it) != null }
 
-    fun scan(capabilities: Set<HookCapability>, inventory: ClassInventory): DiscoveryScan {
+    fun scan(
+        capabilities: Set<HookCapability>,
+        inventory: ClassInventory,
+        onEvidence: (StructuralDiscoveryResult) -> Unit = {}
+    ): DiscoveryScan {
         val global = capabilities.any { it.needsGlobalScan }
         val inventoryClasses = inventory.classNames.toSet()
         val requestedClasses = linkedSetOf<String>()
@@ -83,6 +87,8 @@ class DiscoveryScanner(private val describeClass: (String) -> ClassDescriptor) {
             )
         }
         val discovered = StructuralHookDiscovery.discover(descriptors, capabilities = capabilities)
+        // Diagnostic evidence is not safe to install when the search space is incomplete.
+        onEvidence(discovered)
         val safeResult = discovered.copy(
             wordLimit = if (metadata[HookCapability.WORD_LIMIT]?.complete == false) {
                 WordLimitDiscovery(DiscoveryStatus.PENDING)
