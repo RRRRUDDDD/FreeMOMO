@@ -21,6 +21,7 @@ import com.rud.freemomo.hook.HookSignatures
 import com.rud.freemomo.hook.HookTargets
 import com.rud.freemomo.hook.SecNeoEarlyHook
 import com.rud.freemomo.hook.UpdateHook
+import com.rud.freemomo.hook.UpdateInstallState
 import com.rud.freemomo.hook.UserLevelHook
 import com.rud.freemomo.hook.WordLimitDiscovery
 import com.rud.freemomo.hook.WordLimitHook
@@ -50,7 +51,7 @@ class MomoHookEntry : IXposedHookLoadPackage {
     companion object {
         private const val TARGET_PACKAGE = "com.maimemo.android.momo"
         private const val SEARCHING_MESSAGE = "FreeMOMO 正在寻找 Hook 函数..."
-        private const val FOUND_MESSAGE = "FreeMOMO 已找到 Hook 函数"
+        private const val FOUND_MESSAGE = "FreeMOMO 业务 Hook 已找到"
         private val installState = AtomicReference(InstallState.IDLE)
     }
 
@@ -115,17 +116,11 @@ class MomoHookEntry : IXposedHookLoadPackage {
     private fun doHook(context: Context, classLoader: ClassLoader, application: Application?) {
         val versionCode = context.packageManager
             .getPackageInfo(context.packageName, 0).longVersionCode.toInt()
-        try {
-            val installed = UpdateHook.apply(classLoader, versionCode)
-            XposedBridge.log("FreeMOMO: update:$versionCode install result -> $installed")
-        } catch (error: Throwable) {
-            ThrowablePolicy.rethrowIfFatal(error)
-            Logger.error("update:$versionCode independent install failed", error)
-        }
+        installUpdateProtection(context, classLoader, application, versionCode)
         val exact = HookDiscoveryPolicy.exactTargets(versionCode)
         if (exact != null) {
             // Exact versions never consume structural cache, including legacy range-scan entries.
-            HookCache.clear(context)
+            HookCache.clearIfPresent(context)
             val installed = installTargets(exact, classLoader, "exact:$versionCode")
             if (installed != exact) {
                 XposedBridge.log(
@@ -179,7 +174,7 @@ class MomoHookEntry : IXposedHookLoadPackage {
             DiscoveryTrigger.ATTACH, inventory, readableFailures, inventoryMillis
         )
         if (coordinator.state().snapshot.requiresStructuralScan && application != null) {
-            scheduleDiscoveryRetries(application) { trigger ->
+            scheduleLifecycleRetries(application) { trigger ->
                 discoverUnknownVersion(classLoader, versionCode, coordinator, scanner, retryPolicy, trigger)
             }
         }
@@ -240,8 +235,38 @@ class MomoHookEntry : IXposedHookLoadPackage {
         )
     }
 
-    private fun scheduleDiscoveryRetries(
+    private fun installUpdateProtection(
+        context: Context, classLoader: ClassLoader, application: Application?, version: Int
+    ) {
+        var previous: UpdateInstallState.Status? = null
+        fun attempt(trigger: DiscoveryTrigger) {
+            val status = UpdateHook.apply(classLoader, version, trigger)
+            if (status == previous) return
+            previous = status
+            val message = when (status) {
+                UpdateInstallState.Status.MANUAL_READY -> null
+                UpdateInstallState.Status.GUARDED -> "更新保护降级：已阻断已知升级入口，手动升级暂不可用"
+                UpdateInstallState.Status.PARTIAL -> "更新保护不完整，仍可能自动更新"
+                UpdateInstallState.Status.UNAVAILABLE -> "防更新未安装，仍可能自动更新"
+                UpdateInstallState.Status.UNSUPPORTED -> "此墨墨版本尚未适配防更新"
+            }
+            if (message != null) showToast(context, "FreeMOMO：$message")
+        }
+        try {
+            attempt(DiscoveryTrigger.ATTACH)
+            if (UpdateHook.needsRetry(classLoader) && application != null) {
+                scheduleLifecycleRetries(application, { UpdateHook.needsRetry(classLoader) }, ::attempt)
+            }
+        } catch (error: Throwable) {
+            ThrowablePolicy.rethrowIfFatal(error)
+            XposedBridge.log("FreeMOMO: update:$version setup failed -> ${error.javaClass.simpleName}")
+            showToast(context, "FreeMOMO：更新保护初始化异常，请检查日志")
+        }
+    }
+
+    private fun scheduleLifecycleRetries(
         application: Application,
+        needsRetry: () -> Boolean = { true },
         retry: (DiscoveryTrigger) -> Unit
     ) {
         val resumed = AtomicBoolean(false)
@@ -250,9 +275,9 @@ class MomoHookEntry : IXposedHookLoadPackage {
                 if (!resumed.compareAndSet(false, true)) return
                 application.unregisterActivityLifecycleCallbacks(this)
                 Handler(Looper.getMainLooper()).postDelayed({
-                    runDiscoveryRetry { retry(DiscoveryTrigger.AFTER_RESUME_DELAY) }
+                    runLifecycleRetry { if (needsRetry()) retry(DiscoveryTrigger.AFTER_RESUME_DELAY) }
                 }, 1_000L)
-                runDiscoveryRetry { retry(DiscoveryTrigger.FIRST_RESUME) }
+                runLifecycleRetry { if (needsRetry()) retry(DiscoveryTrigger.FIRST_RESUME) }
             }
 
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
@@ -264,12 +289,12 @@ class MomoHookEntry : IXposedHookLoadPackage {
         })
     }
 
-    private fun runDiscoveryRetry(retry: () -> Unit) {
+    private fun runLifecycleRetry(retry: () -> Unit) {
         try {
             retry()
         } catch (error: Throwable) {
             ThrowablePolicy.rethrowIfFatal(error)
-            Logger.error("structural lifecycle retry failed", error)
+            Logger.error("lifecycle retry failed", error)
         }
     }
 

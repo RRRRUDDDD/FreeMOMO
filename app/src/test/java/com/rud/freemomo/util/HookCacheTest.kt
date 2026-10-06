@@ -297,6 +297,29 @@ class HookCacheTest {
     }
 
     @Test
+    fun `persisted scan failures are capped to the sorted head`() {
+        // Reversed insertion order proves persistence sorts before truncating.
+        val failures = (299 downTo 0).map { "com.example.Class%03d".format(it) }.toSet()
+        val snapshot = DiscoverySnapshot(
+            scanMetadata = mapOf(
+                HookCapability.DISPLAY to CapabilityScanMetadata(
+                    complete = false,
+                    failedClasses = failures,
+                    retryReason = ScanRetryReason.REFLECTION
+                )
+            )
+        )
+
+        val decoded = requireNotNull(HookCache.decode(HookCache.encode(snapshot, 899), 899))
+        val restored = requireNotNull(decoded.scanMetadata[HookCapability.DISPLAY])
+
+        assertEquals(256, restored.failedClasses.size)
+        assertEquals(failures.sorted().take(256), restored.failedClasses.toList())
+        assertFalse(restored.complete)
+        assertEquals(ScanRetryReason.REFLECTION, restored.retryReason)
+    }
+
+    @Test
     fun `complete negative survives restart until the Dex inventory changes`() {
         val inventory = ClassInventory(listOf("empty"), "first", true)
         val scan = DiscoveryScanner { ClassDescriptor(it, emptyList()) }.scan(

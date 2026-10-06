@@ -13,13 +13,11 @@ class HookDiscoveryPolicyTest {
     fun `only verified versions expose complete exact targets`() {
         assertEquals(setOf(893, 898, 900), HookTargets.supportedVersionCodes())
         listOf(893, 898, 900).forEach { versionCode ->
-            assertTrue(HookDiscoveryPolicy.isExactHookVersion(versionCode))
             assertEquals(4, requireNotNull(
                 HookDiscoveryPolicy.exactTargets(versionCode)
             ).presentCapabilityCount)
         }
         listOf(899, 901).forEach { versionCode ->
-            assertFalse(HookDiscoveryPolicy.isExactHookVersion(versionCode))
             assertNull(HookDiscoveryPolicy.exactTargets(versionCode))
         }
     }

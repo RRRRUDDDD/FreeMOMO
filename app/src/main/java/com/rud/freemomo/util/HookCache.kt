@@ -22,6 +22,11 @@ object HookCache {
     private const val KEY_VERSION_CODE = "structural_version_code"
     private const val UNKNOWN = "UNKNOWN"
 
+    // A pathological global scan can fail on tens of thousands of classes; persisting all of
+    // them would balloon prefs and slow the next synchronous attach. probeFailed only probes a
+    // readable prefix to justify a retry, so keep the sorted head and leave the rest in memory.
+    private const val MAX_PERSISTED_FAILED_CLASSES = 256
+
     fun loadSnapshot(
         context: Context,
         versionCode: Int,
@@ -69,10 +74,6 @@ object HookCache {
         return validated
     }
 
-    /** Compatibility view for callers that only understand successfully discovered targets. */
-    fun load(context: Context, versionCode: Int, classLoader: ClassLoader): HookTargets? =
-        loadSnapshot(context, versionCode, classLoader)?.targets?.takeUnless { it.isEmpty() }
-
     fun saveSnapshot(context: Context, snapshot: DiscoverySnapshot, versionCode: Int) {
         val editor = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
@@ -83,15 +84,12 @@ object HookCache {
         editor.apply()
     }
 
-    fun save(context: Context, targets: HookTargets, versionCode: Int) {
-        saveSnapshot(context, DiscoverySnapshot.fromTargets(targets), versionCode)
-    }
-
-    fun clear(context: Context) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .clear()
-            .apply()
+    /** Skips the empty write when nothing is cached; exact versions clear legacy entries per attach. */
+    fun clearIfPresent(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.all.isNotEmpty()) {
+            prefs.edit().clear().apply()
+        }
     }
 
     internal fun encode(targets: HookTargets, versionCode: Int): Map<String, String> =
@@ -202,8 +200,9 @@ object HookCache {
         values["$prefix.attempts"] = metadata.attempts.toString()
         metadata.inventoryFingerprint?.let { values["$prefix.inventory"] = it }
         metadata.retryReason?.let { values["$prefix.retry"] = it.name }
-        values["$prefix.failed_count"] = metadata.failedClasses.size.toString()
-        metadata.failedClasses.sorted().forEachIndexed { index, className ->
+        val persisted = metadata.failedClasses.sorted().take(MAX_PERSISTED_FAILED_CLASSES)
+        values["$prefix.failed_count"] = persisted.size.toString()
+        persisted.forEachIndexed { index, className ->
             values["$prefix.failed.$index"] = className
         }
     }

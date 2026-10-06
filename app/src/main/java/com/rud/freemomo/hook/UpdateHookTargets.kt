@@ -10,6 +10,8 @@ data class UpdateFieldSignature(
 
 /** Raw DEX identities from 5.6.00/900. Never reuse these obfuscated names on another version. */
 object UpdateHookTargets {
+    // Each update-only boundary can deny entry without callback or notification field dependencies.
+    val guardMethodIds = setOf("dispatch", "helper.network", "helper.start", "helper.retry", "model.install")
     const val ACTIVITY = "com.maimemo.android.momo.settings.appinfo.AppUpgradeActivity"
     const val ABOUT = "com.maimemo.android.momo.settings.appinfo.AboutMaiMemoActivity"
     const val CHECK_RESULT = "com.maimemo.android.momo.settings.appinfo.c"
@@ -36,11 +38,12 @@ object UpdateHookTargets {
         val fields: Map<String, UpdateFieldSignature>
     ) {
         fun validate(
-            method: (MethodSignature) -> Boolean,
-            constructor: (UpdateConstructorSignature) -> Boolean,
-            field: (UpdateFieldSignature) -> Boolean
-        ): Boolean = methods.values.all(method) && constructors.values.all(constructor) &&
-            fields.values.all(field)
+            method: (String, MethodSignature) -> Boolean,
+            constructor: (String, UpdateConstructorSignature) -> Boolean,
+            field: (String, UpdateFieldSignature) -> Boolean
+        ): Boolean = methods.all { (id, signature) -> method(id, signature) } &&
+            constructors.all { (id, signature) -> constructor(id, signature) } &&
+            fields.all { (id, signature) -> field(id, signature) }
     }
 
     fun forVersion(versionCode: Int): Profile? = if (versionCode == 900) verified900 else null

@@ -45,14 +45,19 @@ object HookSignatures {
         target.returnType == returnType
 
     fun resolve(target: MethodSignature, classLoader: ClassLoader): Method? = try {
-        val declaringClass = Class.forName(target.className, false, classLoader)
-        val parameters = target.parameterTypes.map { resolveType(it, classLoader) }.toTypedArray()
-        declaringClass.getDeclaredMethod(target.methodName, *parameters).takeIf { method ->
-            signature(method) == target
-        }
+        requireMethod(target, classLoader)
     } catch (error: Throwable) {
         ThrowablePolicy.rethrowIfFatal(error)
         null
+    }
+
+    /** Throwing form preserves missing-class/member versus signature-mismatch diagnostics. */
+    fun requireMethod(target: MethodSignature, classLoader: ClassLoader): Method {
+        val declaringClass = Class.forName(target.className, false, classLoader)
+        val parameters = target.parameterTypes.map { resolveType(it, classLoader) }.toTypedArray()
+        return declaringClass.getDeclaredMethod(target.methodName, *parameters).also { method ->
+            require(signature(method) == target) { "Method signature mismatch" }
+        }
     }
 
     fun resolveAll(signatures: List<MethodSignature>, classLoader: ClassLoader): List<Method>? {

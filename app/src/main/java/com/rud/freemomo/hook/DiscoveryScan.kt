@@ -55,7 +55,7 @@ class DiscoveryScanner(private val describeClass: (String) -> ClassDescriptor) {
 
     fun scan(capabilities: Set<HookCapability>, inventory: ClassInventory): DiscoveryScan {
         val global = capabilities.any { it.needsGlobalScan }
-        val inventoryClasses = inventory.classNames.toSet()
+        val inventoryClasses = if (global) inventory.classNames.toSet() else emptySet()
         val requestedClasses = linkedSetOf<String>()
         if (global) requestedClasses.addAll(inventoryClasses)
         capabilities.mapNotNullTo(requestedClasses) { it.fixedClass }

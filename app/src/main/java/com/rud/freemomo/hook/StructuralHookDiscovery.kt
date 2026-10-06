@@ -37,7 +37,7 @@ data class WordLimitDiscovery internal constructor(
                 rejectedCandidates = (rejectedCandidates + method).distinct()
             )
         }
-        if (result.toLong() !in WORD_LIMIT_RANGE) {
+        if (!HookDiscoveryPolicy.isWordLimitCandidate(result.toLong())) {
             return if (target == null) {
                 copy(
                     status = DiscoveryStatus.REJECTED,
@@ -64,10 +64,6 @@ data class WordLimitDiscovery internal constructor(
                 matchingCandidates = matches
             )
         }
-    }
-
-    private companion object {
-        val WORD_LIMIT_RANGE = 601L..19_999L
     }
 }
 

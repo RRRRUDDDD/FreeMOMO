@@ -20,15 +20,15 @@ class UpdateHookTargetsTest {
 
     @Test fun everyRequiredMemberMustValidateBeforeInstallation() {
         val profile = requireNotNull(UpdateHookTargets.forVersion(900))
-        assertTrue(profile.validate({ true }, { true }, { true }))
+        assertTrue(profile.validate({ _, _ -> true }, { _, _ -> true }, { _, _ -> true }))
         profile.methods.values.forEach { rejected ->
-            assertFalse(rejected.displayName, profile.validate({ it != rejected }, { true }, { true }))
+            assertFalse(rejected.displayName, profile.validate({ _, signature -> signature != rejected }, { _, _ -> true }, { _, _ -> true }))
         }
         profile.constructors.values.forEach { rejected ->
-            assertFalse(rejected.toString(), profile.validate({ true }, { it != rejected }, { true }))
+            assertFalse(rejected.toString(), profile.validate({ _, _ -> true }, { _, signature -> signature != rejected }, { _, _ -> true }))
         }
         profile.fields.values.forEach { rejected ->
-            assertFalse(rejected.toString(), profile.validate({ true }, { true }, { it != rejected }))
+            assertFalse(rejected.toString(), profile.validate({ _, _ -> true }, { _, _ -> true }, { _, signature -> signature != rejected }))
         }
     }
 
@@ -42,6 +42,17 @@ class UpdateHookTargetsTest {
         assertEquals(listOf("android.content.Context", "boolean"), methods.getValue("helper.retry").parameterTypes)
         assertEquals(listOf("java.lang.Object"), methods.getValue("result.about").parameterTypes)
         assertEquals(methods.size, methods.values.distinct().size)
+    }
+
+    @Test fun independentGuardsAreVerifiedUpdateBoundariesWithSafeNullResults() {
+        val profile = requireNotNull(UpdateHookTargets.forVersion(900))
+        assertEquals(setOf("dispatch", "helper.network", "helper.start", "helper.retry", "model.install"),
+            UpdateHookTargets.guardMethodIds)
+        UpdateHookTargets.guardMethodIds.forEach { id ->
+            val target = profile.methods.getValue(id)
+            assertTrue(target.returnType in setOf("void", "android.content.ServiceConnection"))
+        }
+        assertNull(UpdateHookTargets.forVersion(904))
     }
 
     @Test fun allAppMembersMatchIndependentRecoveredDexEvidence() {

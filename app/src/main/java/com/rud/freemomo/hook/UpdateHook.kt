@@ -11,37 +11,58 @@ import java.lang.reflect.Member
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /** Independently installed, version-specific update policy. Business hooks never depend on it. */
 object UpdateHook {
-    private var installedLoader: ClassLoader? = null
+    private val nextAdapterId = AtomicLong()
+    private val installations = java.util.IdentityHashMap<ClassLoader, Installation>()
 
     @Synchronized
-    fun apply(classLoader: ClassLoader, versionCode: Int): Boolean {
-        val profile = UpdateHookTargets.forVersion(versionCode)
-        if (profile == null) {
-            XposedBridge.log("FreeMOMO: update:$versionCode unavailable -> no verified signature profile")
-            return false
-        }
-        if (installedLoader === classLoader) return true
-        val adapter = Adapter(classLoader)
-        return try {
-            // Resolve the entire profile before the first hook has a side effect.
-            if (!adapter.resolve(profile)) {
-                XposedBridge.log("FreeMOMO: update:$versionCode unavailable -> signature validation failed")
-                false
-            } else {
-                adapter.install()
-                installedLoader = classLoader
-                XposedBridge.log("FreeMOMO: update:$versionCode installed -> manual operations only")
-                true
-            }
-        } catch (error: Throwable) {
-            adapter.rollback()
-            ThrowablePolicy.rethrowIfFatal(error)
-            Logger.error("update:$versionCode unavailable; installation rolled back", error)
-            false
+    fun apply(classLoader: ClassLoader, versionCode: Int, trigger: DiscoveryTrigger): UpdateInstallState.Status =
+        installations.getOrPut(classLoader) { Installation(classLoader, versionCode) }.attempt(trigger)
+
+    @Synchronized
+    fun needsRetry(classLoader: ClassLoader): Boolean = installations[classLoader]?.state?.needsRetry == true
+
+    private class MemberFailure(val id: String, cause: Throwable) : RuntimeException(cause)
+
+    private class Installation(private val loader: ClassLoader, private val version: Int) {
+        private val profile = UpdateHookTargets.forVersion(version)
+        val state = UpdateInstallState(UpdateHookTargets.guardMethodIds, profile != null)
+        private val loggedBlocks = ConcurrentHashMap.newKeySet<String>()
+
+        fun attempt(trigger: DiscoveryTrigger): UpdateInstallState.Status {
+            val result = state.attempt(trigger, installGuard = { id ->
+                val signature = requireNotNull(profile).methods.getValue(id)
+                val method = HookSignatures.requireMethod(signature, loader)
+                XposedBridge.hookMethod(method, object : XC_MethodHook(PRIORITY_HIGHEST) {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (state.manualReady) return
+                        // Also deny manual upgrades until their entire authorization chain is installed.
+                        param.result = null
+                        if (loggedBlocks.add(id)) {
+                            XposedBridge.log("FreeMOMO: update:$version guarded -> $id (manual adapter unavailable)")
+                        }
+                    }
+                })
+            }, installManual = {
+                val adapter = Adapter(loader)
+                try {
+                    adapter.resolve(requireNotNull(profile))
+                    adapter.install()
+                } catch (error: Throwable) {
+                    adapter.rollback()
+                    throw error
+                }
+            }, onFailure = { stage, error ->
+                val member = (error as? MemberFailure)?.id ?: stage
+                val cause = (error as? MemberFailure)?.cause ?: error
+                // Never log exception messages or host arguments.
+                XposedBridge.log("FreeMOMO: update:$version $trigger failed -> $member:${cause.javaClass.simpleName}")
+            })
+            XposedBridge.log("FreeMOMO: update:$version $trigger status -> $result")
+            return result
         }
     }
 
@@ -50,43 +71,52 @@ object UpdateHook {
         private val methods = linkedMapOf<String, Method>()
         private val constructors = linkedMapOf<String, Constructor<*>>()
         private val fields = linkedMapOf<String, Field>()
-        private val handles = mutableListOf<XC_MethodHook.Unhook>()
-        private val enabled = AtomicBoolean(false)
+        private val group = UpdateHookGroup {
+            XposedBridge.log("FreeMOMO: update rollback failed -> ${it.javaClass.simpleName}")
+        }
         private val loggedBlocks = ConcurrentHashMap.newKeySet<String>()
-        private val scopeKey = "freemomo.update.scope"
-        private val operationKey = "freemomo.update.operation"
-        private val enteredKey = "freemomo.update.entered"
+        // A failed unhook from a previous attempt must never see another adapter's scope extras.
+        private val keyPrefix = "freemomo.update.${nextAdapterId.incrementAndGet()}"
+        private val scopeKey = "$keyPrefix.scope"
+        private val operationKey = "$keyPrefix.operation"
+        private val enteredKey = "$keyPrefix.entered"
         private val transferKey = "com.rud.freemomo.manual_upgrade_operation"
 
-        fun resolve(profile: UpdateHookTargets.Profile): Boolean {
-            val valid = profile.validate(
-                method = { signature ->
-                    HookSignatures.resolve(signature, loader)?.let { method ->
-                        methods[profile.methods.entries.first { it.value == signature }.key] = method
-                        true
-                    } ?: false
-                },
-                constructor = { signature ->
+        fun resolve(profile: UpdateHookTargets.Profile) {
+            check(profile.validate(method = { id, signature ->
+                resolveMember(id) { methods[id] = HookSignatures.requireMethod(signature, loader) }
+                true
+            }, constructor = { id, signature ->
+                resolveMember("constructor:$id") {
                     val cls = Class.forName(signature.className, false, loader)
                     val parameters = signature.parameterTypes.map { HookSignatures.resolveType(it, loader) }
-                    val constructor = cls.getDeclaredConstructor(*parameters.toTypedArray())
-                    constructor.isAccessible = true
-                    constructors[profile.constructors.entries.first { it.value == signature }.key] = constructor
-                    true
-                },
-                field = { signature ->
-                    val field = Class.forName(signature.className, false, loader).getDeclaredField(signature.name)
-                    if (field.type.name != signature.type || Modifier.isStatic(field.modifiers) != signature.isStatic) {
-                        false
-                    } else {
-                        field.isAccessible = true
-                        fields[profile.fields.entries.first { it.value == signature }.key] = field
-                        true
+                    constructors[id] = cls.getDeclaredConstructor(*parameters.toTypedArray()).apply {
+                        isAccessible = true
                     }
                 }
-            )
-            return valid && fields.getValue("notification.upgrade").get(null) == "app_upgrade" &&
-                fields.getValue("notification.dialog").get(null) == "app_upgrade_dialog"
+                true
+            }, field = { id, signature ->
+                resolveMember("field:$id") {
+                    val field = Class.forName(signature.className, false, loader).getDeclaredField(signature.name)
+                    require(field.type.name == signature.type && Modifier.isStatic(field.modifiers) == signature.isStatic)
+                    field.isAccessible = true
+                    fields[id] = field
+                }
+                true
+            }))
+            for ((id, expected) in mapOf("notification.upgrade" to "app_upgrade",
+                "notification.dialog" to "app_upgrade_dialog")) {
+                resolveMember("constant:$id") { require(fields.getValue(id).get(null) == expected) }
+            }
+        }
+
+        private fun resolveMember(id: String, resolve: () -> Unit) {
+            try {
+                resolve()
+            } catch (error: Throwable) {
+                ThrowablePolicy.rethrowIfFatal(error)
+                throw MemberFailure(id, error)
+            }
         }
 
         fun install() {
@@ -260,7 +290,7 @@ object UpdateHook {
             hook(methods.getValue("notifications.im"), before = { param ->
                 if (isAutomaticNotification(param.thisObject)) block(param, "automatic notification", false)
             })
-            enabled.set(true)
+            group.activate()
         }
 
         private fun captureConstructor(id: String, param: XC_MethodHook.MethodHookParam): Boolean {
@@ -326,50 +356,37 @@ object UpdateHook {
             before: (XC_MethodHook.MethodHookParam) -> Unit = {},
             after: (XC_MethodHook.MethodHookParam) -> Unit = {}
         ) {
-            handles += XposedBridge.hookMethod(member, object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    if (!enabled.get()) return
-                    param.setObjectExtra(enteredKey, true)
-                    try {
-                        before(param)
-                    } catch (error: Throwable) {
-                        ThrowablePolicy.rethrowIfFatal(error)
-                        Logger.error("update callback rejected: $member", error)
-                        // All guarded boundaries return void/reference/boolean. A failed guard grants nothing.
-                        param.result = if (member is Method && member.returnType == Boolean::class.javaPrimitiveType) false else null
+            resolveMember("hook:${member.declaringClass.name}.${member.name}") {
+                val handle = XposedBridge.hookMethod(member, object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (!group.active) return
+                        param.setObjectExtra(enteredKey, true)
+                        try {
+                            before(param)
+                        } catch (error: Throwable) {
+                            ThrowablePolicy.rethrowIfFatal(error)
+                            Logger.error("update callback rejected: $member", error)
+                            // All guarded boundaries return void/reference/boolean. A failed guard grants nothing.
+                            param.result = if (member is Method && member.returnType == Boolean::class.javaPrimitiveType) false else null
+                        }
                     }
-                }
 
-                override fun afterHookedMethod(param: MethodHookParam) {
-                    if (param.getObjectExtra(enteredKey) != true) return
-                    try {
-                        if (enabled.get()) after(param)
-                    } catch (error: Throwable) {
-                        ThrowablePolicy.rethrowIfFatal(error)
-                        Logger.error("update callback completion failed: $member", error)
-                    } finally {
-                        (param.getObjectExtra(scopeKey) as? UpdateFlowPolicy.Scope)?.close()
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        if (param.getObjectExtra(enteredKey) != true) return
+                        try {
+                            if (group.active) after(param)
+                        } catch (error: Throwable) {
+                            ThrowablePolicy.rethrowIfFatal(error)
+                            Logger.error("update callback completion failed: $member", error)
+                        } finally {
+                            (param.getObjectExtra(scopeKey) as? UpdateFlowPolicy.Scope)?.close()
+                        }
                     }
-                }
-            })
-        }
-
-        fun rollback() {
-            enabled.set(false)
-            var fatal: Throwable? = null
-            handles.asReversed().forEach { handle ->
-                try {
-                    handle.unhook()
-                } catch (error: Throwable) {
-                    if (error is VirtualMachineError || error is ThreadDeath) {
-                        if (fatal == null) fatal = error
-                    } else {
-                        Logger.error("update rollback failed", error)
-                    }
-                }
+                })
+                group.add(HookUnhook { handle.unhook() })
             }
-            handles.clear()
-            fatal?.let { throw it }
         }
+
+        fun rollback() = group.rollback()
     }
 }

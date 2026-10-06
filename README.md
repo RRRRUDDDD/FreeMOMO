@@ -1,4 +1,4 @@
-# FreeMOMO
+# FreeMOMO![Downloads](https://img.shields.io/github/downloads/Xposed-Modules-Repo/com.rud.freemomo/total) ![Downloads](https://img.shields.io/github/downloads/RRRRUDDDD/FreeMOMO/total)
 
 FreeMOMO 是一个配合 LSPosed 与 Zygisk 使用的墨墨背单词增强模块，用于修改单词上限、用户等级和相关权限。
 
@@ -32,7 +32,7 @@ FreeMOMO 是一个配合 LSPosed 与 Zygisk 使用的墨墨背单词增强模块
 2. 安装 `freemomo.apk`。
 3. 在 LSPosed 中启用 FreeMOMO，作用域只勾选墨墨背单词（`com.maimemo.android.momo`）。
 4. 在 KernelSU/Magisk 模块管理器中安装 `freemomo-zygisk.zip`。
-5. 安装或更新 APK 后，完全退出墨墨背单词再打开，使 LSPosed 加载新模块。Hook 安装成功后会显示“FreeMOMO 已找到 Hook 函数”。
+5. 安装或更新 APK 后，完全退出墨墨背单词再打开，使 LSPosed 加载新模块。Hook 安装成功后会显示“FreeMOMO 业务 Hook 已找到”。
 6. 需要自动适配的其他版本会寻找 Hook 方法并将结果保存在本地；首次启动请停留一会儿，看到上述 Toast 后完全退出并再次打开墨墨背单词。
 
 ## 许可证
