@@ -98,9 +98,8 @@ bool CandidateSet::Equals(const CandidateSet& other) const {
 }
 
 long ForcedScanIntervalMicroseconds(long elapsed_microseconds) {
-    if (elapsed_microseconds < 1000000L) return 8000L;
-    if (elapsed_microseconds < 3000000L) return 50000L;
-    return 250000L;
+    constexpr long kIntervalByTier[] = {8000L, 50000L, 250000L};
+    return kIntervalByTier[BeatTier(elapsed_microseconds)];
 }
 
 PatchResult PatchPayload(uintptr_t base, size_t size) {

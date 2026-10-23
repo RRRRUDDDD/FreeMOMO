@@ -13,4 +13,12 @@ object Logger {
             XposedBridge.log(error)
         }
     }
+
+    /** Type-only variant for host-facing paths: exception messages can carry host arguments. */
+    fun errorType(message: String, error: Throwable) {
+        XposedBridge.log("FreeMOMO: $message -> ${error.javaClass.simpleName}")
+        if (BuildConfig.DEBUG) {
+            XposedBridge.log(error)
+        }
+    }
 }

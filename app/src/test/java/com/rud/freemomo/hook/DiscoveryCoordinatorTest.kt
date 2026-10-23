@@ -104,6 +104,29 @@ class DiscoveryCoordinatorTest {
     }
 
     @Test
+    fun `divergence from the persisted baseline earns a first-commit write`() {
+        val persisted = mutableListOf<DiscoverySnapshot>()
+        val onDisk = DiscoverySnapshot(
+            display = CapabilityDiscovery(DiscoveryStatus.DISCOVERED,
+                target = requireNotNull(known.display), candidates = requireNotNull(known.display).methods),
+            scanMetadata = mapOf(HookCapability.DISPLAY to
+                CapabilityScanMetadata(true, inventoryFingerprint = "old"))
+        )
+        // The attach path transforms the loaded snapshot through forInventory; that
+        // divergence must reach disk even though start() itself changes nothing.
+        val transformed = onDisk.forInventory("new")
+        val coordinator = DiscoveryCoordinator(
+            transformed,
+            persisted = onDisk,
+            installTargets = { it },
+            installWordObservers = { _, _ -> false },
+            persist = { persisted += it }
+        )
+        coordinator.start()
+        assertEquals(listOf(transformed), persisted)
+    }
+
+    @Test
     fun `nested installer callbacks merge current state and commit only the final transaction`() {
         listOf(false, true).forEach { ambiguous ->
             lateinit var harness: Harness
@@ -113,10 +136,13 @@ class DiscoveryCoordinatorTest {
                 requested
             }
             harness.coordinator.start()
-            assertEquals(1, harness.persisted.size)
+            // 3j: the constructor's snapshot counts as already persisted; a start()
+            // that changes nothing (empty install request, observers registered) must
+            // not rewrite the store.
+            assertEquals(0, harness.persisted.size)
             harness.coordinator.publish(scan())
             val final = harness.coordinator.state()
-            assertEquals(2, harness.persisted.size)
+            assertEquals(1, harness.persisted.size)
             assertEquals(final.snapshot, harness.persisted.last())
             assertEquals(final.installed, final.snapshot.targets)
             assertEquals(if (ambiguous) DiscoveryStatus.AMBIGUOUS else DiscoveryStatus.DISCOVERED,
@@ -237,6 +263,20 @@ class DiscoveryCoordinatorTest {
         assertEquals(DiscoveryStatus.AMBIGUOUS, harness.coordinator.state().snapshot.wordLimit?.status)
         assertEquals(listOf(second, first), harness.released)
         assertEquals(670, harness.observe(first))
+    }
+
+    @Test
+    fun `repeat observation of the installed target reaffirms replacement without state churn`() {
+        val harness = Harness()
+        harness.coordinator.start()
+        assertEquals(HookDiscoveryPolicy.WORD_LIMIT_REPLACEMENT, harness.observe(first))
+        val discovered = harness.coordinator.state()
+        // The getter fires on every host refresh, in range or not: the replacement is
+        // reaffirmed and neither the snapshot nor persistence may move.
+        assertEquals(HookDiscoveryPolicy.WORD_LIMIT_REPLACEMENT, harness.observe(first, 7))
+        assertEquals(HookDiscoveryPolicy.WORD_LIMIT_REPLACEMENT, harness.observe(first))
+        assertEquals(discovered, harness.coordinator.state())
+        assertEquals(discovered.snapshot, harness.persisted.last())
     }
 
     @Test

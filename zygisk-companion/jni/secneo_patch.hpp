@@ -36,6 +36,15 @@ struct ScanResult {
     CandidateSet candidates;
 };
 
+// Shared elapsed-time tier for the poll beat: the sleep ladder (monitor
+// policy) and the forced-scan ladder key on the same 1s/3s breakpoints and
+// must not drift apart.
+inline int BeatTier(long elapsed_microseconds) {
+    if (elapsed_microseconds < 1000000L) return 0;
+    if (elapsed_microseconds < 3000000L) return 1;
+    return 2;
+}
+
 long ForcedScanIntervalMicroseconds(long elapsed_microseconds);
 PatchResult PatchPayload(uintptr_t base, size_t size);
 ScanResult ScanAndPatchSelf();

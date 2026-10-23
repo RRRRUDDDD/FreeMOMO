@@ -2,6 +2,8 @@
 
 FreeMOMO 是一个配合 LSPosed 与 Zygisk 使用的墨墨背单词增强模块，用于修改单词上限、用户等级和相关权限。
 
+**当前版本：3.4**
+
 **已适配：墨墨背单词 5.6.00（versionCode 900）**
 
 内置映射版本直接安装 Java 层 Hook，无需等待结构扫描。其他版本会尝试根据运行时结构自动适配；如果某项结构无法唯一确认，该项会安全关闭。native 层仍需匹配已验证指纹，不能自动迁移。
@@ -14,6 +16,8 @@ FreeMOMO 是一个配合 LSPosed 与 Zygisk 使用的墨墨背单词增强模块
 - Zygisk Next
 
 > **注意：首次启动时需要等待 LSPosed Hook 和 Zygisk native 模块完成初始化。请在 App 中停留的时间久一点，不要刚进入墨墨就立即退出。**
+
+> **免 root 用户：** 请使用 [`rootless` 分支](https://github.com/RRRRUDDDD/FreeMOMO/tree/rootless)。
 
 ## 为什么需要 Zygisk 模块
 

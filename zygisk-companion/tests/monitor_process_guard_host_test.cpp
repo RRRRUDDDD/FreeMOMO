@@ -123,7 +123,7 @@ void TestOwnerStillFaults() {
     if (pid > 0) WaitSignaled(pid, SIGSEGV, "owner process still fatally faults");
 }
 
-void TestForkChildCrashExitsZero() {
+void TestForkChildCrashExitsNonZero() {
     const pid_t pid = fork();
     if (pid == 0) {
         const auto installed = momo_secneo::InstallForkChildGuard();
@@ -136,10 +136,11 @@ void TestForkChildCrashExitsZero() {
         if (child < 0) _exit(4);
         int status = 0;
         const pid_t waited = waitpid(child, &status, 0);
-        _exit(waited == child && WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : 5);
+        _exit(waited == child && WIFEXITED(status) &&
+                      WEXITSTATUS(status) == 128 + SIGSEGV ? 0 : 5);
     }
     Expect(pid > 0, "fork child-crash fixture");
-    if (pid > 0) WaitExited(pid, 0, "fork child SIGSEGV becomes exit 0");
+    if (pid > 0) WaitExited(pid, 0, "fork child SIGSEGV exits 128+signal, not success");
 }
 
 void TestForkChildPatchesPayload() {
@@ -177,7 +178,7 @@ void TestForkChildPatchesPayload() {
 
 int main() {
     TestOwnerStillFaults();
-    TestForkChildCrashExitsZero();
+    TestForkChildCrashExitsNonZero();
     TestForkChildPatchesPayload();
     printf("Monitor process guard: %d checks, %d failures.\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

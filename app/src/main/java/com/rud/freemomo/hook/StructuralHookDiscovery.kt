@@ -90,19 +90,6 @@ internal data class StructuralDiscoveryDiagnostics(
 
 /** Pure structural matching. Android reflection and Xposed installation live outside this type. */
 object StructuralHookDiscovery {
-    private val displayShortParameters = listOf(HookTargets.TEXT_VIEW, HookTargets.INT)
-    private val displayDetailedParameters = listOf(
-        HookTargets.TEXT_VIEW,
-        HookTargets.INT,
-        HookTargets.BOOLEAN,
-        HookTargets.FLOAT
-    )
-    private val privilegeSingleParameters = listOf(HookTargets.PRIVILEGE_CODE)
-    private val privilegeDetailedParameters = listOf(
-        HookTargets.PRIVILEGE_CODE,
-        HookTargets.BOOLEAN
-    )
-
     fun discover(
         classes: List<ClassDescriptor>,
         wordLimitResults: Map<MethodSignature, Number> = emptyMap(),
@@ -180,10 +167,10 @@ object StructuralHookDiscovery {
 
         val exactPairs = relevantByClass.mapNotNull { (_, allMethods, _) ->
             val short = allMethods.filter {
-                it.isExact(displayShortParameters, HookTargets.VOID)
+                it.isExact(HookSignatures.DISPLAY_SHORT_PARAMETERS, HookTargets.VOID)
             }
             val detailed = allMethods.filter {
-                it.isExact(displayDetailedParameters, HookTargets.VOID)
+                it.isExact(HookSignatures.DISPLAY_DETAILED_PARAMETERS, HookTargets.VOID)
             }
             if (short.size == 1 && detailed.size == 1) {
                 DisplayHookTargets(short.single(), detailed.single())
@@ -221,10 +208,10 @@ object StructuralHookDiscovery {
 
         val relevant = methods.filter(::isPrivilegeRelevant)
         val singles = relevant.filter {
-            it.isExact(privilegeSingleParameters, HookTargets.BOOLEAN)
+            it.isExact(HookSignatures.PRIVILEGE_SINGLE_PARAMETERS, HookTargets.BOOLEAN)
         }
         val detailed = relevant.filter {
-            it.isExact(privilegeDetailedParameters, HookTargets.BOOLEAN)
+            it.isExact(HookSignatures.PRIVILEGE_DETAILED_PARAMETERS, HookTargets.BOOLEAN)
         }
         if (singles.size == 2 && detailed.size == 1 && relevant.size == 3) {
             val target = PrivilegeHookTargets(singles, detailed.single())
@@ -327,8 +314,8 @@ object StructuralHookDiscovery {
     private fun isWordLimitShape(method: MethodSignature): Boolean = HookSignatures.isWord(method)
 
     private fun isDisplayRelevant(method: MethodSignature): Boolean =
-        method.parameterTypes == displayShortParameters ||
-            method.parameterTypes == displayDetailedParameters ||
+        method.parameterTypes == HookSignatures.DISPLAY_SHORT_PARAMETERS ||
+            method.parameterTypes == HookSignatures.DISPLAY_DETAILED_PARAMETERS ||
             method.parameterTypes.firstOrNull() == HookTargets.TEXT_VIEW
 
     private fun isPrivilegeRelevant(method: MethodSignature): Boolean =
@@ -338,7 +325,7 @@ object StructuralHookDiscovery {
         method.parameterTypes == listOf(HookTargets.BOOLEAN) -> true
         method.parameterTypes.firstOrNull() == HookTargets.MAP -> true
         method.parameterTypes.isEmpty() &&
-            method.returnType in setOf(HookTargets.INT, HookTargets.INTEGER) -> true
+            (method.returnType == HookTargets.INT || method.returnType == HookTargets.INTEGER) -> true
         method.parameterTypes == listOf(HookTargets.CONTEXT) -> true
         else -> false
     }

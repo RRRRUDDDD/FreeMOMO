@@ -12,6 +12,11 @@ data class DiscoveryState(val snapshot: DiscoverySnapshot, val installed: HookTa
  */
 class DiscoveryCoordinator(
     initial: DiscoverySnapshot,
+    /** Snapshot persistence already holds for this lineage. The first commit re-persists
+     *  only on divergence from it: the constructor's initial may already be transformed
+     *  (forInventory fingerprint invalidation), and that difference must reach disk, but
+     *  an unchanged load must not rewrite the store on every launch. */
+    persisted: DiscoverySnapshot = initial,
     private val installTargets: (HookTargets) -> HookTargets,
     private val installWordObservers: (WordLimitDiscovery, WordObserverGroup) -> Boolean,
     private val persist: (DiscoverySnapshot) -> Unit,
@@ -21,6 +26,7 @@ class DiscoveryCoordinator(
     private val monitor = Any()
     private var current = DiscoveryState(initial, HookTargets())
     private var lastCommitted: DiscoveryState? = null
+    private var lastPersisted: DiscoverySnapshot = persisted
     private var observerGroup: WordObserverGroup? = null
     private var transactionDepth = 0
     private var committing = false
@@ -116,6 +122,15 @@ class DiscoveryCoordinator(
         replace: (Int) -> Unit
     ) = transaction {
         if (observerGroup === group && group.active) {
+            // The daily-limit getter fires on every host UI refresh; once its method is
+            // installed, further observations cannot change anything: WordLimitDiscovery
+            // keeps a DISCOVERED state sticky (out-of-range returns this, in-range rebuilds
+            // an equal copy), so the full path would only produce an equal state that
+            // commit() then skips. Reaffirm the replacement and leave the state alone.
+            if (current.installed.wordLimit == method) {
+                replace(HookDiscoveryPolicy.WORD_LIMIT_REPLACEMENT)
+                return@transaction
+            }
             val previous = requireNotNull(current.snapshot.wordLimit)
             val observed = previous.observe(method, result)
             // Out-of-range runtime values can change later; they are not structural negatives.
@@ -157,7 +172,10 @@ class DiscoveryCoordinator(
             while (current != lastCommitted) {
                 val next = current
                 val previous = lastCommitted
-                if (previous?.snapshot != next.snapshot) persist(next.snapshot)
+                if (next.snapshot != lastPersisted) {
+                    persist(next.snapshot)
+                    lastPersisted = next.snapshot
+                }
                 lastCommitted = next
                 onChange(previous, next)
                 // Reentrant persistence/listener callbacks may have queued a newer state.

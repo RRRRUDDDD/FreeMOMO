@@ -18,6 +18,11 @@ object UpdateHook {
     private val nextAdapterId = AtomicLong()
     private val installations = java.util.IdentityHashMap<ClassLoader, Installation>()
 
+    /** Activities whose destroy finishes their update operation; shared by the
+     *  page.destroy hook and the lifecycle fallback (a fresh set per destroy event
+     *  is pure garbage on a hot path). */
+    private val DESTROY_TARGETS = setOf(UpdateHookTargets.ACTIVITY, UpdateHookTargets.ABOUT)
+
     @Synchronized
     fun apply(classLoader: ClassLoader, versionCode: Int, trigger: DiscoveryTrigger): UpdateInstallState.Status =
         installations.getOrPut(classLoader) { Installation(classLoader, versionCode) }.attempt(trigger)
@@ -59,7 +64,7 @@ object UpdateHook {
                 val member = (error as? MemberFailure)?.id ?: stage
                 val cause = (error as? MemberFailure)?.cause ?: error
                 // Never log exception messages or host arguments.
-                XposedBridge.log("FreeMOMO: update:$version $trigger failed -> $member:${cause.javaClass.simpleName}")
+                Logger.errorType("update:$version $trigger failed -> $member", cause)
             })
             XposedBridge.log("FreeMOMO: update:$version $trigger status -> $result")
             return result
@@ -72,7 +77,7 @@ object UpdateHook {
         private val constructors = linkedMapOf<String, Constructor<*>>()
         private val fields = linkedMapOf<String, Field>()
         private val group = UpdateHookGroup {
-            XposedBridge.log("FreeMOMO: update rollback failed -> ${it.javaClass.simpleName}")
+            Logger.errorType("update rollback failed", it)
         }
         private val loggedBlocks = ConcurrentHashMap.newKeySet<String>()
         // A failed unhook from a previous attempt must never see another adapter's scope extras.
@@ -120,6 +125,43 @@ object UpdateHook {
         }
 
         fun install() {
+            // 3d③: every per-callback field lookup (string concat + HashMap.get on
+            // each host call) resolves once here; the closures capture the Field
+            // directly. resolve() has already validated and populated all of them.
+            val requestSelector = fields.getValue("request.selector")
+            val upgradeSelector = fields.getValue("upgrade.selector")
+            val dialogSelector = fields.getValue("dialog.selector")
+            val dialogOwner = fields.getValue("dialog.owner")
+            val cancelSelector = fields.getValue("cancel.selector")
+            val cancelOwner = fields.getValue("cancel.owner")
+            val installSelector = fields.getValue("install.selector")
+            val installOwner = fields.getValue("install.owner")
+            val notificationsSelector = fields.getValue("notifications.selector")
+            val aboutSelector = fields.getValue("about.selector")
+            val aboutOwner = fields.getValue("about.owner")
+            val notificationCode = fields.getValue("notification.code")
+            val infoTitle = fields.getValue("info.title")
+            val infoMessage = fields.getValue("info.message")
+            val responseData = fields.getValue("response.data")
+            val responseNotifications = fields.getValue("response.notifications")
+
+            fun isAboutResult(value: Any): Boolean = aboutSelector.getInt(value) == 2 &&
+                aboutOwner.get(value)?.javaClass?.name == UpdateHookTargets.ABOUT
+
+            fun isAutomaticNotification(notification: Any?): Boolean = notification != null &&
+                policy.isAutomaticUpgradeNotification(notificationCode.get(notification) as? String)
+
+            fun filterNotifications(response: Any?) {
+                if (response == null) return
+                val data = responseData.get(response) ?: return
+                val notifications = responseNotifications.get(data) as? Set<*> ?: return
+                val filtered = notifications.filterNotTo(linkedSetOf(), ::isAutomaticNotification)
+                if (filtered.size != notifications.size) {
+                    responseNotifications.set(data, filtered)
+                    logBlock("automatic notification payload")
+                }
+            }
+
             constructors.forEach { (id, constructor) ->
                 hook(constructor, after = { param ->
                     if (!param.hasThrowable() && captureConstructor(id, param)) policy.capture(param.thisObject)
@@ -135,17 +177,17 @@ object UpdateHook {
                 })
             }
             hook(methods.getValue("page.destroy"), before = { param ->
-                if (param.thisObject.javaClass.name in setOf(UpdateHookTargets.ACTIVITY, UpdateHookTargets.ABOUT)) {
+                if (param.thisObject.javaClass.name in DESTROY_TARGETS) {
                     policy.finish(policy.operationFor(param.thisObject))
                 }
-            })
+            }, pairsAfter = false)
             hook(methods.getValue("request.get"), before = { param ->
-                if (selector("request", param.thisObject) == 22) {
+                if (requestSelector.getInt(param.thisObject) == 22) {
                     enterBound(param)
                     if (!policy.mayCheck()) block(param, "automatic check", null)
                 }
             }, after = { param ->
-                if (selector("request", param.thisObject) == 22 && (param.hasThrowable() || param.result == null)) {
+                if (requestSelector.getInt(param.thisObject) == 22 && (param.hasThrowable() || param.result == null)) {
                     policy.finish(operation(param))
                 }
             })
@@ -155,14 +197,14 @@ object UpdateHook {
             }, after = { param -> if (isAboutResult(param.thisObject)) finishCheck(param) })
 
             hook(methods.getValue("click.upgrade"), before = { param ->
-                if (selector("upgrade", param.thisObject) == 0) {
+                if (upgradeSelector.getInt(param.thisObject) == 0) {
                     enter(param, policy.begin(UpdateFlowPolicy.Kind.UPGRADE))
                 }
             }, after = { param -> if (param.hasThrowable()) policy.finish(operation(param)) })
             hook(methods.getValue("click.dialog"), before = { param ->
-                val model = requireNotNull(fields.getValue("dialog.owner").get(param.thisObject))
+                val model = requireNotNull(dialogOwner.get(param.thisObject))
                 val previous = policy.operationFor(model)
-                if (selector("dialog", param.thisObject) == 2) {
+                if (dialogSelector.getInt(param.thisObject) == 2) {
                     // Only the verified approval callback creates an operation, never a download callback.
                     val operation = previous?.takeIf { it.kind == UpdateFlowPolicy.Kind.UPGRADE }
                         ?: policy.begin(UpdateFlowPolicy.Kind.UPGRADE).also { policy.finish(previous) }
@@ -172,21 +214,21 @@ object UpdateHook {
                     enter(param, previous)
                 }
             }, after = { param ->
-                if (selector("dialog", param.thisObject) == 1 || param.hasThrowable()) {
+                if (dialogSelector.getInt(param.thisObject) == 1 || param.hasThrowable()) {
                     policy.finish(operation(param))
                 }
             })
 
             hook(methods.getValue("dispatch"), before = { param ->
                 val info = param.args[1]
-                val immediateDownload = info != null && fields.getValue("info.title").get(info) == null &&
-                    fields.getValue("info.message").get(info) == null
+                val immediateDownload = info != null && infoTitle.get(info) == null &&
+                    infoMessage.get(info) == null
                 // This shape immediately calls model.approve and sets the host in-progress flag.
                 // Reject before that side effect when a check has not included a user approval.
                 if (!policy.mayDispatchUpgrade(immediateDownload)) {
                     block(param, "automatic dispatch", null)
                 }
-            })
+            }, pairsAfter = false)
             for (id in listOf("model.approve", "model.download", "model.install", "model.close")) {
                 hook(methods.getValue(id), before = { param ->
                     enterBound(param)
@@ -207,12 +249,12 @@ object UpdateHook {
                 hook(methods.getValue(id), before = ::enterBound)
             }
             hook(methods.getValue("callback.cancel"), before = { param ->
-                if (selector("cancel", param.thisObject) == 1 && isModel(fields.getValue("cancel.owner").get(param.thisObject))) {
+                if (cancelSelector.getInt(param.thisObject) == 1 && isModel(cancelOwner.get(param.thisObject))) {
                     enterBound(param)
                 }
             }, after = { param -> policy.finish(operation(param)) })
             hook(methods.getValue("callback.install"), before = { param ->
-                if (selector("install", param.thisObject) == 26 && isModel(fields.getValue("install.owner").get(param.thisObject))) {
+                if (installSelector.getInt(param.thisObject) == 26 && isModel(installOwner.get(param.thisObject))) {
                     enterBound(param)
                 }
             })
@@ -252,7 +294,7 @@ object UpdateHook {
             })
             hook(methods.getValue("helper.retry"), before = { param ->
                 if (!policy.mayDownload()) block(param, "automatic retry", null)
-            })
+            }, pairsAfter = false)
             hook(methods.getValue("helper.stop"), after = { param ->
                 if (!param.hasThrowable()) policy.stopDownloads()
             })
@@ -264,7 +306,7 @@ object UpdateHook {
                     val token = policy.currentOperation()?.let(policy::exportUpgrade)
                     if (token == null) intent.removeExtra(transferKey) else intent.putExtra(transferKey, token)
                 }
-            })
+            }, pairsAfter = false)
             hook(methods.getValue("retry.receive"), before = { param ->
                 val intent = param.args[1] as? Intent
                 if (intent?.getIntExtra("action", -1) == 1) {
@@ -279,17 +321,17 @@ object UpdateHook {
                 filterNotifications(param.args[0])
             })
             hook(methods.getValue("notifications.consume"), before = { param ->
-                if (selector("notifications", param.thisObject) == 7) {
+                if (notificationsSelector.getInt(param.thisObject) == 7) {
                     enter(param, null)
                     filterNotifications(param.args[0])
                 }
             })
             hook(methods.getValue("notifications.dialog"), before = { param ->
                 if (isAutomaticNotification(param.args[2])) block(param, "automatic notification dialog", null)
-            })
+            }, pairsAfter = false)
             hook(methods.getValue("notifications.im"), before = { param ->
                 if (isAutomaticNotification(param.thisObject)) block(param, "automatic notification", false)
-            })
+            }, pairsAfter = false)
             group.activate()
         }
 
@@ -306,26 +348,6 @@ object UpdateHook {
         }
 
         private fun isModel(value: Any?): Boolean = value?.javaClass?.name == UpdateHookTargets.MODEL
-
-        private fun selector(prefix: String, value: Any): Int = fields.getValue("$prefix.selector").getInt(value)
-
-        private fun isAboutResult(value: Any): Boolean = selector("about", value) == 2 &&
-            fields.getValue("about.owner").get(value)?.javaClass?.name == UpdateHookTargets.ABOUT
-
-        private fun isAutomaticNotification(notification: Any?): Boolean = notification != null &&
-            policy.isAutomaticUpgradeNotification(fields.getValue("notification.code").get(notification) as? String)
-
-        private fun filterNotifications(response: Any?) {
-            if (response == null) return
-            val data = fields.getValue("response.data").get(response) ?: return
-            val field = fields.getValue("response.notifications")
-            val notifications = field.get(data) as? Set<*> ?: return
-            val filtered = notifications.filterNotTo(linkedSetOf(), ::isAutomaticNotification)
-            if (filtered.size != notifications.size) {
-                field.set(data, filtered)
-                logBlock("automatic notification payload")
-            }
-        }
 
         private fun enterBound(param: XC_MethodHook.MethodHookParam) =
             enter(param, policy.operationFor(param.thisObject))
@@ -351,33 +373,42 @@ object UpdateHook {
             if (loggedBlocks.add(reason)) XposedBridge.log("FreeMOMO: update blocked -> $reason")
         }
 
+        /**
+         * 3d②: `pairsAfter = false` skips the enteredKey extra entirely for pure
+         * interception hooks (no enter()/scope pairing and an empty after) -- before
+         * saves the write, after saves the read plus the try/finally. Hooks that call
+         * enter()/enterBound() must keep the default: the after wrapper's finally is
+         * what closes the paired Scope, and helper.stop's after-only completion rides
+         * on the unconditional mark.
+         */
         private fun hook(
             member: Member,
             before: (XC_MethodHook.MethodHookParam) -> Unit = {},
-            after: (XC_MethodHook.MethodHookParam) -> Unit = {}
+            after: (XC_MethodHook.MethodHookParam) -> Unit = {},
+            pairsAfter: Boolean = true
         ) {
             resolveMember("hook:${member.declaringClass.name}.${member.name}") {
                 val handle = XposedBridge.hookMethod(member, object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         if (!group.active) return
-                        param.setObjectExtra(enteredKey, true)
+                        if (pairsAfter) param.setObjectExtra(enteredKey, true)
                         try {
                             before(param)
                         } catch (error: Throwable) {
                             ThrowablePolicy.rethrowIfFatal(error)
-                            Logger.error("update callback rejected: $member", error)
+                            Logger.errorType("update callback rejected: $member", error)
                             // All guarded boundaries return void/reference/boolean. A failed guard grants nothing.
                             param.result = if (member is Method && member.returnType == Boolean::class.javaPrimitiveType) false else null
                         }
                     }
 
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        if (param.getObjectExtra(enteredKey) != true) return
+                        if (!pairsAfter || param.getObjectExtra(enteredKey) != true) return
                         try {
                             if (group.active) after(param)
                         } catch (error: Throwable) {
                             ThrowablePolicy.rethrowIfFatal(error)
-                            Logger.error("update callback completion failed: $member", error)
+                            Logger.errorType("update callback completion failed: $member", error)
                         } finally {
                             (param.getObjectExtra(scopeKey) as? UpdateFlowPolicy.Scope)?.close()
                         }

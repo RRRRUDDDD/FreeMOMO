@@ -3,7 +3,7 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
-def appVersionName = "3.3"
+def appVersionName = "3.4"
 
 android {
     namespace = "com.rud.freemomo"
@@ -17,8 +17,10 @@ android {
         applicationId = "com.rud.freemomo"
         minSdk = 28
         targetSdk = 36
-        versionCode = 20261006
+        versionCode = 20261017
         versionName = appVersionName
+        buildConfigField "boolean", "API_PROBE",
+            (project.findProperty('fmApiProbe') ?: "false").toString()
     }
 
     buildTypes {
@@ -35,6 +37,12 @@ android {
     kotlinOptions {
         jvmTarget = '11'
     }
+    packaging {
+        resources {
+            // 现代 Xposed 模块声明(META-INF/xposed/*)来自 src/main/resources,允许聚合避免重复项冲突
+            merges += "META-INF/xposed/*"
+        }
+    }
 }
 
 androidComponents {
@@ -49,6 +57,8 @@ androidComponents {
 dependencies {
     // Xposed（compileOnly：仅编译期可用，不打包进 APK，运行时由 LSPosed 提供）
     compileOnly 'de.robv.android.xposed:api:82'
+    // libxposed 现代 API（API 101）：modern 入口与 staticScope 声明，运行时由 LSPosed 桥接层提供
+    compileOnly 'io.github.libxposed:api:101.0.1'
 
     // Test
     testImplementation 'junit:junit:4.13.2'

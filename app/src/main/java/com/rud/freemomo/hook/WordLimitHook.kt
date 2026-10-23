@@ -21,12 +21,17 @@ class WordLimitHook {
             XposedBridge.hookMethod(method, object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val original = param.result as? Int ?: return
-                    param.result = HookDiscoveryPolicy.WORD_LIMIT_REPLACEMENT
-                    if (firstHitLogged.compareAndSet(false, true)) {
-                        XposedBridge.log(
-                            "FreeMOMO: word-limit $source hit -> ${target.displayName} " +
-                                "$original -> ${HookDiscoveryPolicy.WORD_LIMIT_REPLACEMENT}"
-                        )
+                    HookDiscoveryPolicy.gatedWordLimitReplacement(
+                        original,
+                        record = WordLimitState::recordOriginalLimit
+                    ) { replacement ->
+                        param.result = replacement
+                        if (firstHitLogged.compareAndSet(false, true)) {
+                            XposedBridge.log(
+                                "FreeMOMO: word-limit $source hit -> ${target.displayName} " +
+                                    "$original -> $replacement"
+                            )
+                        }
                     }
                 }
             })
@@ -54,6 +59,7 @@ class WordLimitHook {
             val unhook = XposedBridge.hookMethod(resolved.getValue(signature), object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val original = param.result as? Int ?: return
+                    WordLimitState.recordOriginalLimit(original)
                     if (BuildConfig.DEBUG && firstResult.compareAndSet(false, true)) {
                         XposedBridge.log(
                             "FreeMOMO: word-limit observer first result -> " +

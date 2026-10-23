@@ -64,7 +64,10 @@ object HookCache {
                 "FreeMOMO: cache rejected invalid capabilities -> " +
                     rejectedCapabilities(decoded, validated)
             )
-            // The coordinator persists validation and installation together, in commit order.
+            // The coordinator treats the returned snapshot as already persisted (3j
+            // baseline), so the cleanup itself must reach disk here or the invalid
+            // payload would be re-cleaned and re-dropped on every launch.
+            saveSnapshot(context, validated, versionCode)
         } else {
             XposedBridge.log(
                 "FreeMOMO: discovery snapshot cached -> version=$versionCode " +

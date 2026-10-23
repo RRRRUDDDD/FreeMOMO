@@ -25,3 +25,10 @@
     public <init>();
     public void handleLoadPackage(de.robv.android.xposed.callbacks.XC_LoadPackage$LoadPackageParam);
 }
+
+# java_init.list 按类名反射加载现代入口；回调虽经 libxposed 接口虚调用，仍显式保留以防 R8 裁剪覆盖。
+-keep,allowoptimization class com.rud.freemomo.ModernHookEntry {
+    public <init>();
+    public void onModuleLoaded(io.github.libxposed.api.XposedModuleInterface$ModuleLoadedParam);
+    public void onPackageReady(io.github.libxposed.api.XposedModuleInterface$PackageReadyParam);
+}
