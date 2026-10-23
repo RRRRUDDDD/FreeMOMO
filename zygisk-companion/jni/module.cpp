@@ -3,6 +3,7 @@
 #include "zygisk.hpp"
 
 #include <android/log.h>
+#include <errno.h>
 #include <pthread.h>
 #include <string.h>
 #include <unistd.h>
@@ -24,10 +25,40 @@ void LogMonitor(void*, momo_secneo::RunnerEvent event,
     momo_secneo::LogRunnerEvent(kLogTag, event, result);
 }
 
+// AtForkChild runs inside the fork child's signal context; the logd client
+// library is not async-signal-safe (malloc + mutexes), so the notification
+// degrades to a raw write(2) on stderr with a hand-rolled formatter.
+char* AppendText(char* cursor, char* end, const char* text) {
+    while (*text != '\0' && cursor < end) *cursor++ = *text++;
+    return cursor;
+}
+
+char* AppendNumber(char* cursor, char* end, long value) {
+    char digits[20];
+    int count = 0;
+    do {
+        digits[count++] = static_cast<char>('0' + value % 10);
+        value /= 10;
+    } while (value != 0);
+    while (count > 0 && cursor < end) *cursor++ = digits[--count];
+    return cursor;
+}
+
 void LogForkChild(void*, pid_t pid, pid_t ppid, momo_secneo::PatchResult result) {
-    __android_log_print(ANDROID_LOG_INFO, kLogTag,
-                        "SecNeo fork child pid=%d ppid=%d patch_result=%d",
-                        pid, ppid, static_cast<int>(result));
+    char buffer[128];
+    char* cursor = buffer;
+    char* const end = buffer + sizeof(buffer);
+    cursor = AppendText(cursor, end, "FreeMOMO.Zygisk: SecNeo fork child pid=");
+    cursor = AppendNumber(cursor, end, pid);
+    cursor = AppendText(cursor, end, " ppid=");
+    cursor = AppendNumber(cursor, end, ppid);
+    cursor = AppendText(cursor, end, " patch_result=");
+    cursor = AppendNumber(cursor, end, static_cast<int>(result));
+    cursor = AppendText(cursor, end, "\n");
+    ssize_t written;
+    do {
+        written = write(STDERR_FILENO, buffer, static_cast<size_t>(cursor - buffer));
+    } while (written < 0 && errno == EINTR);
 }
 
 void* MonitorPayload(void*) {

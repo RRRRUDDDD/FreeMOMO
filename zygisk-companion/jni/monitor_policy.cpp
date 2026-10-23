@@ -78,9 +78,14 @@ long MonitorPolicy::SleepMicroseconds(int64_t now_us) const {
     const int64_t elapsed_us = now_us - started_at_us_;
     const int64_t remaining_us = kMonitorTimeoutMicroseconds - elapsed_us;
     if (remaining_us <= 0) return 0;
+    constexpr long kSleepByTier[] = {500L, 2000L, 10000L};
     const long interval_us = has_pending_candidates() ? 500L
-        : (elapsed_us < 1000000 ? 500L : (elapsed_us < 3000000 ? 2000L : 10000L));
-    return remaining_us < interval_us ? static_cast<long>(remaining_us) : interval_us;
+        : kSleepByTier[BeatTier(elapsed_us)];
+    const long sleep_us = remaining_us < interval_us ? static_cast<long>(remaining_us) : interval_us;
+    // Tail sleeps used to shrink toward zero and spin-wake the last stretch
+    // before the deadline; clamp to 200 us. Overshooting the timeout by under
+    // 200 us is harmless: the next CheckDeadline stops the monitor.
+    return sleep_us < 200 ? 200 : sleep_us;
 }
 
 }  // namespace momo_secneo

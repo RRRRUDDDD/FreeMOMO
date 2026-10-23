@@ -7,6 +7,8 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
+import com.rud.freemomo.hook.ApiProbe
+import com.rud.freemomo.hook.BusinessReadySignal
 import com.rud.freemomo.hook.CapabilityDiscovery
 import com.rud.freemomo.hook.ClassInventory
 import com.rud.freemomo.hook.DexInventoryReader
@@ -20,6 +22,7 @@ import com.rud.freemomo.hook.HookDiscoveryPolicy
 import com.rud.freemomo.hook.HookSignatures
 import com.rud.freemomo.hook.HookTargets
 import com.rud.freemomo.hook.SecNeoEarlyHook
+import com.rud.freemomo.hook.SignDataSanitizer
 import com.rud.freemomo.hook.UpdateHook
 import com.rud.freemomo.hook.UpdateInstallState
 import com.rud.freemomo.hook.UserLevelHook
@@ -49,18 +52,23 @@ class MomoHookEntry : IXposedHookLoadPackage {
     }
 
     companion object {
-        private const val TARGET_PACKAGE = "com.maimemo.android.momo"
+        internal const val TARGET_PACKAGE = "com.maimemo.android.momo"
         private const val SEARCHING_MESSAGE = "FreeMOMO 正在寻找 Hook 函数..."
         private const val FOUND_MESSAGE = "FreeMOMO 业务 Hook 已找到"
         private val installState = AtomicReference(InstallState.IDLE)
     }
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
-        if (lpparam.packageName != TARGET_PACKAGE || lpparam.processName != TARGET_PACKAGE) return
+        handlePackage(lpparam.packageName, lpparam.processName, lpparam.classLoader)
+    }
+
+    /** Shared entry stage for both the legacy and the modern (libxposed) entry point. */
+    internal fun handlePackage(packageName: String, processName: String, classLoader: ClassLoader) {
+        if (packageName != TARGET_PACKAGE || processName != TARGET_PACKAGE) return
 
         try {
             // Must stay independent from Java discovery. Native fingerprint mismatch is fail-closed.
-            SecNeoEarlyHook().apply(lpparam.classLoader)
+            SecNeoEarlyHook().apply(classLoader)
 
             XposedHelpers.findAndHookMethod(
                 Application::class.java,
@@ -114,9 +122,18 @@ class MomoHookEntry : IXposedHookLoadPackage {
     }
 
     private fun doHook(context: Context, classLoader: ClassLoader, application: Application?) {
+        if (BuildConfig.API_PROBE) ApiProbe.launch(context, classLoader)
         val versionCode = context.packageManager
             .getPackageInfo(context.packageName, 0).longVersionCode.toInt()
-        installUpdateProtection(context, classLoader, application, versionCode)
+        // Independent of the capability mapping: the serialization funnels it hooks are
+        // stable kept-name classes, and a missed install would leak the replacement value.
+        val entryStartedAt = System.nanoTime()
+        try {
+            SignDataSanitizer.apply(classLoader, "attach:$versionCode")
+        } catch (error: Throwable) {
+            ThrowablePolicy.rethrowIfFatal(error)
+            Logger.error("sign-data sanitizer setup failed", error)
+        }
         val exact = HookDiscoveryPolicy.exactTargets(versionCode)
         if (exact != null) {
             // Exact versions never consume structural cache, including legacy range-scan entries.
@@ -130,9 +147,19 @@ class MomoHookEntry : IXposedHookLoadPackage {
             } else {
                 showFoundIfNeeded(context, versionCode)
             }
+            // r46: the 30+ update guards used to run before the entry hooks and
+            // delayed the splash gate by ~400ms (r43 log: update block 20.598-20.968,
+            // word at 21.030). Entry capabilities are what the gate waits for;
+            // update protection follows immediately on the same delivery thread.
+            XposedBridge.log(
+                "FreeMOMO: exact:$versionCode entry path ready in " +
+                    "${elapsedMillis(entryStartedAt)}ms (update protection follows)"
+            )
+            installUpdateProtection(context, classLoader, application, versionCode)
             return
         }
 
+        installUpdateProtection(context, classLoader, application, versionCode)
         val cached = HookCache.loadSnapshot(context, versionCode, classLoader)
             ?: DiscoverySnapshot()
         val scanner = DiscoveryScanner { className -> HookSignatures.describe(className, classLoader) }
@@ -144,9 +171,17 @@ class MomoHookEntry : IXposedHookLoadPackage {
         val initial = cached.forInventory(inventory.fingerprint)
         val coordinator = DiscoveryCoordinator(
             initial = initial,
+            // What the store already holds: loadSnapshot returned the validated snapshot
+            // (self-saving its cleanup) and an absent cache leaves an empty store. Only
+            // a forInventory divergence from this baseline earns a first-commit write.
+            persisted = cached,
             installTargets = { installTargets(it, classLoader, "structural:$versionCode") },
             installWordObservers = { pending, group ->
-                WordLimitHook().observe(pending, classLoader, group)
+                WordLimitHook().observe(pending, classLoader, group).also { installed ->
+                    // The split splash gate opens on this signal; observer
+                    // installs are the structural line's word-path arming.
+                    if (installed) BusinessReadySignal.wordHookArmed("structural-observer")
+                }
             },
             persist = { HookCache.saveSnapshot(context, it, versionCode) },
             onChange = { before, after ->
@@ -240,7 +275,7 @@ class MomoHookEntry : IXposedHookLoadPackage {
     ) {
         var previous: UpdateInstallState.Status? = null
         fun attempt(trigger: DiscoveryTrigger) {
-            val status = UpdateHook.apply(classLoader, version, trigger)
+            val status = UpdateHook.apply(classLoader, version, trigger, application)
             if (status == previous) return
             previous = status
             val message = when (status) {
@@ -318,6 +353,11 @@ class MomoHookEntry : IXposedHookLoadPackage {
             userLevelHook.applyCloud(it, classLoader, source)
         }
         val installed = HookTargets(word, display, privilege, cloud)
+        if (installed.wordLimit != null) {
+            // r45: the split-side splash gate holds entry until this lands, so
+            // the main page's first word-limit read already sees 99666.
+            BusinessReadySignal.wordHookArmed(source)
+        }
         XposedBridge.log(
             "FreeMOMO: $source install result -> ${describeCapabilities(installed)}"
         )

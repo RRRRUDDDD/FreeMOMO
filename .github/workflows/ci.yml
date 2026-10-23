@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - rootless
 
 permissions:
   contents: read
@@ -42,20 +43,12 @@ jobs:
         run: sdkmanager "platforms;android-36" "build-tools;$ANDROID_BUILD_TOOLS"
 
       - name: Run native host tests
-        run: bash zygisk-companion/test-host.sh
+        run: sh native-jni/test-host.sh "$RUNNER_TEMP/freemomo-native-tests"
+
+      - name: Check rootless build scripts
+        run: python -m py_compile rootless/build_rootless.py rootless/custom_repack.py rootless/verify_artifacts.py
 
       - name: Run unit tests, lint, and Android builds
         run: |
           chmod +x gradlew
           ./gradlew test lint assembleDebug assembleRelease --no-daemon --console=plain
-
-      - name: Upload CI APKs
-        # actions/upload-artifact v4.6.2
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: freemomo-ci-apks
-          path: |
-            app/build/outputs/apk/debug/*.apk
-            app/build/outputs/apk/release/*.apk
-          if-no-files-found: error
-          retention-days: 14

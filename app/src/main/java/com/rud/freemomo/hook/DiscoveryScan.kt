@@ -48,21 +48,41 @@ data class DiscoveryScan(
 
 /** Reflection is injectable so temporary failures and their recovery can be exercised on a JVM. */
 class DiscoveryScanner(private val describeClass: (String) -> ClassDescriptor) {
-    fun probeFailed(snapshot: DiscoverySnapshot): Set<String> = snapshot.unknownCapabilities
-        .flatMap { snapshot.scanMetadata[it]?.failedClasses.orEmpty() }
-        .distinct()
-        .filterTo(linkedSetOf()) { describeOrNull(it) != null }
+
+    /**
+     * Attach-time budget for the readability probe: it runs on the main thread and the
+     * worst case (every inventoried class failed once) is 512 candidates. Probing beyond
+     * this many failed classes buys little -- a retry pass recurs on the next trigger --
+     * so bound the describeClass invocations, not the readable hits.
+     */
+    private val probeLimit = 24
+
+    fun probeFailed(snapshot: DiscoverySnapshot): Set<String> {
+        val candidates = snapshot.unknownCapabilities
+            .flatMap { snapshot.scanMetadata[it]?.failedClasses.orEmpty() }
+            .distinct()
+        val readable = linkedSetOf<String>()
+        var probed = 0
+        for (name in candidates) {
+            if (probed >= probeLimit) break
+            probed++
+            if (describeOrNull(name) != null) readable += name
+        }
+        return readable
+    }
 
     fun scan(capabilities: Set<HookCapability>, inventory: ClassInventory): DiscoveryScan {
         val global = capabilities.any { it.needsGlobalScan }
-        val inventoryClasses = if (global) inventory.classNames.toSet() else emptySet()
         val requestedClasses = linkedSetOf<String>()
-        if (global) requestedClasses.addAll(inventoryClasses)
+        if (global) requestedClasses.addAll(inventory.classNames)
         capabilities.mapNotNullTo(requestedClasses) { it.fixedClass }
         val failed = linkedSetOf<String>()
         val descriptors = requestedClasses.mapNotNull { className ->
             describeOrNull(className).also { if (it == null) failed += className }
         }
+        // Set for the per-capability membership test, built only when something
+        // actually failed -- the common scan allocates no 512-entry intermediate.
+        val inventoryClasses = if (global && failed.isNotEmpty()) inventory.classNames.toSet() else emptySet()
         val metadata = capabilities.associateWith { capability ->
             val failures = if (capability.needsGlobalScan) {
                 failed.filterTo(linkedSetOf()) { it in inventoryClasses }

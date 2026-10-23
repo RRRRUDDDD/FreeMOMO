@@ -16,19 +16,8 @@ class UpdateHookGroup(private val onError: (Throwable) -> Unit) {
 
     fun rollback() {
         active = false
-        var fatal: Throwable? = null
-        handles.asReversed().forEach { handle ->
-            try {
-                handle.unhook()
-            } catch (error: Throwable) {
-                if (error is VirtualMachineError || error is ThreadDeath) {
-                    if (fatal == null) fatal = error
-                } else {
-                    onError(error)
-                }
-            }
-        }
+        val pending = handles.toList()
         handles.clear()
-        fatal?.let { throw it }
+        unhookAllQuietly(pending, onError)
     }
 }

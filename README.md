@@ -1,39 +1,137 @@
-# FreeMOMO![Downloads](https://img.shields.io/github/downloads/Xposed-Modules-Repo/com.rud.freemomo/total) ![Downloads](https://img.shields.io/github/downloads/RRRRUDDDD/FreeMOMO/total)
+# FreeMOMO Rootless（免 root 分支）
 
-FreeMOMO 是一个配合 LSPosed 与 Zygisk 使用的墨墨背单词增强模块，用于修改单词上限、用户等级和相关权限。
+> **仅供学习与研究。** 本分支不提供任何 APK、原始安装包、签名密钥、成品包或构建产物。你需要自行获取官方 APK、自行构建、自行签名，并自行承担全部后果。请支持正版。
 
-**已适配：墨墨背单词 5.6.00（versionCode 900）**
+FreeMOMO Rootless 是 FreeMOMO 的免 root 实验线，不依赖 root、LSPosed、Zygisk 或 LSPatch 管理器。需要 LSPosed + Zygisk 的稳定版本请使用 [`main` 分支](https://github.com/RRRRUDDDD/FreeMOMO/tree/main)。
 
-内置映射版本直接安装 Java 层 Hook，无需等待结构扫描。其他版本会尝试根据运行时结构自动适配；如果某项结构无法唯一确认，该项会安全关闭。native 层仍需匹配已验证指纹，不能自动迁移。
+它不是一个可以直接安装的 Xposed 模块，而是重打包后的墨墨本体加一个同包名 feature split。FreeMOMO 模块与纯 Java ART hook 引擎放在 split 中，由系统在安装时融合进墨墨的 ClassLoader。
 
-## 使用前准备
+- 适配：墨墨背单词 5.6.00（versionCode 900）
+- 架构：arm64-v8a，4 KB 内核页
 
-使用前请先安装并启用：
+## 工作原理
 
-- LSPosed
-- Zygisk Next
+1. **base**：官方 APK 的原有条目、偏移和字节保持不变，仅重新签名，并把 `AndroidManifest.xml` 中的 `appComponentFactory` 等长改名为 split 提供的类。
+2. **split**：`classes.dex` 是纯 Java ART entrypoint 引擎、桥表与启动门，`classes2.dex` 是 FreeMOMO 模块 dex。
+3. 安装时系统把 split 融合进 base 的 ClassLoader；工厂类在 `<clinit>` 中启动引擎并分发模块入口。
 
-> **注意：首次启动时需要等待 LSPosed Hook 和 Zygisk native 模块完成初始化。请在 App 中停留的时间久一点，不要刚进入墨墨就立即退出。**
+## 你需要准备
 
-## 为什么需要 Zygisk 模块
+- 官方 `墨墨背单词 5.6.00` APK（versionCode 900）。构建脚本会校验固定 SHA-256，不匹配会直接拒绝。
+- JDK 21
+- Android SDK：platform 36，build-tools 需包含 `aapt2`、`d8`、`apksigner`、`zipalign`
+- Python 3.9+（仅标准库）
+- 网络（首次构建会下载 `hiddenapibypass-6.1.aar`；也可用 `--hidden-api-aar` 指定本地文件）
 
-墨墨背单词 5.5.30 及后续版本的部分检测已经移动到 native 层，单独使用 Java 层 Hook 无法修改这部分逻辑。
+签名密钥不需要事先准备：首次运行会在 `build/rootless/signing/` 下生成 PKCS12 密钥与密码文件。**请备份整个 `signing/` 目录**，以后覆盖更新必须使用同一密钥。也可以传入自己的密钥：
 
-- LSPosed 模块负责 Java 层的单词上限、等级和权限 Hook。
-- Zygisk 模块负责在进程早期处理 native 层的 SecNeo 检测。
+```text
+--keystore <path> --keystore-password-file <path> [--key-alias <alias>]
+```
 
-两部分职责不同，缺少 Zygisk 模块时，Java Hook 无法替代 native 层处理。
+或通过环境变量 `FREEMOMO_KEYSTORE_PASSWORD` 提供密码。密钥库中的别名不是 `freemomo` 时，用 `--key-alias` 指定。
 
-当前 native 适配只支持 4096 字节内核页，保留精确映射尺寸与九点指纹校验。监控计时与映射生命周期边界见 [Zygisk companion 文档](./zygisk-companion/README.md)。
+## 构建
 
-## 使用方式
+在仓库根目录先构建模块：
 
-1. 从 [Releases](https://github.com/RRRRUDDDD/FreeMOMO/releases) 下载 `freemomo.apk` 和 `freemomo-zygisk.zip`。
-2. 安装 `freemomo.apk`。
-3. 在 LSPosed 中启用 FreeMOMO，作用域只勾选墨墨背单词（`com.maimemo.android.momo`）。
-4. 在 KernelSU/Magisk 模块管理器中安装 `freemomo-zygisk.zip`。
-5. 安装或更新 APK 后，完全退出墨墨背单词再打开，使 LSPosed 加载新模块。Hook 安装成功后会显示“FreeMOMO 业务 Hook 已找到”。
-6. 需要自动适配的其他版本会寻找 Hook 方法并将结果保存在本地；首次启动请停留一会儿，看到上述 Toast 后完全退出并再次打开墨墨背单词。
+```powershell
+.\gradlew.bat :app:assembleRelease
+```
+
+Linux / macOS：
+
+```sh
+./gradlew :app:assembleRelease
+```
+
+然后构建 base + split：
+
+```powershell
+python rootless\build_rootless.py --original path\to\墨墨背单词_5.6.00.apk
+```
+
+Linux / macOS：
+
+```sh
+python3 rootless/build_rootless.py --original path/to/墨墨背单词_5.6.00.apk
+```
+
+如果原包就在仓库根目录并命名为 `墨墨背单词_5.6.00.apk`，可以省略 `--original`。脚本会自动寻找 `app/build/outputs/apk/release/` 下的模块 APK，也支持 `--module-apk` 指定。
+
+常用参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--original` | 官方 5.6.00 APK；也可用 `FREEMOMO_ORIGINAL` |
+| `--module-apk` | 模块 APK；默认自动查找 |
+| `--base-apk` | 复用已有的 base（必须与 split 使用同一签名密钥与包版本） |
+| `--hidden-api-aar` | 本地 `hiddenapibypass-6.1.aar` |
+| `--keystore` / `--keystore-password-file` / `--key-alias` | 使用自己的签名密钥 |
+| `--sdk` / `--jdk` / `--build-tools` | 指定工具链；默认读 `ANDROID_HOME` / `JAVA_HOME` |
+| `--out` | 输出目录，默认 `build/rootless` |
+| `--probe` | 额外构建独立自检 APK |
+| `--no-bundle` | 不生成 SAI 整包 |
+
+## 产物
+
+```text
+build/rootless/
+├─ artifacts/
+│  ├─ base.apk
+│  ├─ freemomo-rootless-3.4-split.apk
+│  ├─ freemomo-rootless-3.4.apks        # base + split 的 SAI 整包
+│  ├─ freemomo-rootless-3.4-probe.apk   # 仅 --probe
+│  └─ SHA256SUMS.txt
+├─ base.apk                             # base 缓存
+├─ deps/                                # 第三方依赖缓存
+├─ logs/                                # 构建与签名日志
+├─ signing/                             # 本地生成的签名密钥（勿提交）
+└─ work/                                # 中间文件
+```
+
+## 安装
+
+请使用**同一轮构建**的 base 与 split：
+
+```powershell
+adb install-multiple -r `
+  build\rootless\artifacts\base.apk `
+  build\rootless\artifacts\freemomo-rootless-3.4-split.apk
+```
+
+也可以把 `freemomo-rootless-3.4.apks` 交给 SAI 等支持 split 安装的工具。
+
+首次启动请停留在墨墨窗口：启动页会等待模块与桥接完成，期间不要强行结束进程。
+
+## 首次启动与排障
+
+启动期关键日志：
+
+```text
+splash gate installed
+delivery gate open
+arm b_word
+business-ready
+splash gate open: module ready
+```
+
+- 若停在启动页：说明模块或桥接没有完成，启动门会保持关闭（fail-closed），不会进入未 hook 的主页。
+- 闪退取证优先看 `adb logcat -b crash` 与 `dumpsys activity exit-info com.maimemo.android.momo`。
+- 日志 tag 为 `FreeMOMO-Rootless`。
+
+## 目录
+
+| 路径 | 说明 |
+| --- | --- |
+| `app/` | FreeMOMO 模块源码；构建出的模块 dex 会融合进 split |
+| `rootless/build_rootless.py` | base + split 构建入口 |
+| `rootless/custom_repack.py` | 保持原布局的追加式重打包与签名 |
+| `rootless/engine/` | 纯 Java ART entrypoint 引擎、桥表、启动门与 Xposed shim |
+| `rootless/probe/` | 独立自检 App（`--probe`） |
+| `rootless/verify_artifacts.py` | 固定输入常量与校验辅助 |
+| `rootless/dependencies.json` | 原包与 hiddenapibypass 的固定摘要 |
+| `native-jni/`、`zygisk-companion/` | `main` 分支的 root 方案，rootless 构建不使用 |
 
 ## 许可证
 

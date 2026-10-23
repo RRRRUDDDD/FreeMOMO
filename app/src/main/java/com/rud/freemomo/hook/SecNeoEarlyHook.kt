@@ -43,13 +43,8 @@ class SecNeoEarlyHook {
                 }
                 applied = true
             } catch (error: Throwable) {
-                unhooks.asReversed().forEach { unhook ->
-                    try {
-                        unhook.unhook()
-                    } catch (rollbackError: Throwable) {
-                        ThrowablePolicy.rethrowIfFatal(rollbackError)
-                        Logger.error("SecNeo early hook rollback failed", rollbackError)
-                    }
+                unhookAllQuietly(unhooks.map { unhook -> HookUnhook { unhook.unhook() } }) { rollbackError ->
+                    Logger.error("SecNeo early hook rollback failed", rollbackError)
                 }
                 ThrowablePolicy.rethrowIfFatal(error)
                 Logger.error("SecNeo early hook group install rejected", error)

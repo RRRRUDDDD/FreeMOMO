@@ -26,3 +26,5 @@ local.properties
 /zygisk-companion/libs/
 /zygisk-companion/obj/
 .ccg/
+__pycache__/
+.ace-tool/

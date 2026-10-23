@@ -197,8 +197,8 @@ void TestSleepAndPageSize() {
     Expect(monitor.SleepAt(1000000) == 2000 && monitor.SleepAt(2999999) == 2000,
            "middle poll sleep is 2 ms");
     Expect(monitor.SleepAt(3000000) == 10000, "late poll sleep is 10 ms");
-    Expect(monitor.SleepAt(9999999) == 1 && monitor.SleepAt(10000000) == 0,
-           "sleep is capped by the remaining total deadline");
+    Expect(monitor.SleepAt(9999999) == 200 && monitor.SleepAt(10000000) == 0,
+           "tail sleep floors at 200 us; past the deadline the monitor never sleeps");
     monitor.ScanAt(4000000, Mismatch(kCandidateA));
     Expect(monitor.SleepAt(4000000) == 500, "pending candidates bypass late poll backoff");
 

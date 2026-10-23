@@ -1,0 +1,13 @@
+{
+  "original_apk": {
+    "package": "com.maimemo.android.momo",
+    "versionName": "5.6.00",
+    "versionCode": 900,
+    "sha256": "6c1fcb95aa9a3e12b73af589b0efdcb2fb7d81cd4516451bdf5b031c2b9d46ae"
+  },
+  "hidden_api": {
+    "name": "hiddenapibypass-6.1.aar",
+    "url": "https://repo.maven.apache.org/maven2/org/lsposed/hiddenapibypass/hiddenapibypass/6.1/hiddenapibypass-6.1.aar",
+    "sha256": "e3161dd21c97a4540b1698a33f7062aeaa1450008e1e2176070e5380f7a6324c"
+  }
+}

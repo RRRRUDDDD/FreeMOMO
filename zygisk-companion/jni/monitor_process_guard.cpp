@@ -49,7 +49,9 @@ void ChainPrevious(int sig, siginfo_t* info, void* context) {
 }
 
 void ForkChildCrashHandler(int sig, siginfo_t* info, void* context) {
-    if (g_owner_pid != 0 && getpid() != g_owner_pid) _exit(0);
+    // A crashed fork child must not report success to whoever waits on it;
+    // mirror ChainPrevious's 128+signal convention.
+    if (g_owner_pid != 0 && getpid() != g_owner_pid) _exit(128 + sig);
     ChainPrevious(sig, info, context);
 }
 

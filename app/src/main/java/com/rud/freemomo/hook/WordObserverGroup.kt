@@ -45,7 +45,7 @@ class WordObserverGroup(
                     }
                 }
                 if (phase == Phase.CLOSED) {
-                    release(listOf(handle))
+                    unhookAllQuietly(listOf(handle), onError)
                     return@synchronized false
                 }
                 handles += handle
@@ -63,24 +63,8 @@ class WordObserverGroup(
     fun close() = synchronized(monitor) {
         if (phase == Phase.CLOSED) return@synchronized
         phase = Phase.CLOSED
-        val pending = handles.asReversed().toList()
+        val pending = handles.toList()
         handles.clear()
-        release(pending)
-    }
-
-    private fun release(pending: List<HookUnhook>) {
-        var fatal: Throwable? = null
-        pending.forEach { handle ->
-            try {
-                handle.unhook()
-            } catch (error: Throwable) {
-                if (error is VirtualMachineError || error is ThreadDeath) {
-                    if (fatal == null) fatal = error
-                } else {
-                    onError(error)
-                }
-            }
-        }
-        fatal?.let { throw it }
+        unhookAllQuietly(pending, onError)
     }
 }

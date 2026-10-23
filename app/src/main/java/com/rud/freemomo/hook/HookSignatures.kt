@@ -6,30 +6,38 @@ import java.lang.reflect.Modifier
 
 /** One side-effect-free signature boundary shared by cache validation and installation. */
 object HookSignatures {
+
+    /** Parameter shapes read here by both discovery and validation so the two cannot drift. */
+    val DISPLAY_SHORT_PARAMETERS: List<String> = listOf(HookTargets.TEXT_VIEW, HookTargets.INT)
+    val DISPLAY_DETAILED_PARAMETERS: List<String> = listOf(
+        HookTargets.TEXT_VIEW,
+        HookTargets.INT,
+        HookTargets.BOOLEAN,
+        HookTargets.FLOAT
+    )
+    val PRIVILEGE_SINGLE_PARAMETERS: List<String> = listOf(HookTargets.PRIVILEGE_CODE)
+    val PRIVILEGE_DETAILED_PARAMETERS: List<String> = listOf(
+        HookTargets.PRIVILEGE_CODE,
+        HookTargets.BOOLEAN
+    )
+
     fun isWord(target: MethodSignature): Boolean =
         target.className == HookTargets.WORD_LIMIT_CLASS &&
             isStaticMethod(target, emptyList(), HookTargets.INT)
 
     fun isDisplay(target: DisplayHookTargets): Boolean =
         target.twoArgumentMethod.className == target.detailedMethod.className &&
-            isStaticMethod(
-                target.twoArgumentMethod,
-                listOf(HookTargets.TEXT_VIEW, HookTargets.INT),
-                HookTargets.VOID
-            ) && isStaticMethod(
-                target.detailedMethod,
-                listOf(HookTargets.TEXT_VIEW, HookTargets.INT, HookTargets.BOOLEAN, HookTargets.FLOAT),
-                HookTargets.VOID
-            )
+            isStaticMethod(target.twoArgumentMethod, DISPLAY_SHORT_PARAMETERS, HookTargets.VOID) &&
+            isStaticMethod(target.detailedMethod, DISPLAY_DETAILED_PARAMETERS, HookTargets.VOID)
 
     fun isPrivilege(target: PrivilegeHookTargets): Boolean =
         target.methods.distinct().size == 3 &&
             target.methods.all { it.className == HookTargets.PRIVILEGE_CLASS } &&
             target.singleArgumentMethods.all {
-                isStaticMethod(it, listOf(HookTargets.PRIVILEGE_CODE), HookTargets.BOOLEAN)
+                isStaticMethod(it, PRIVILEGE_SINGLE_PARAMETERS, HookTargets.BOOLEAN)
             } && isStaticMethod(
                 target.twoArgumentMethod,
-                listOf(HookTargets.PRIVILEGE_CODE, HookTargets.BOOLEAN),
+                PRIVILEGE_DETAILED_PARAMETERS,
                 HookTargets.BOOLEAN
             )
 

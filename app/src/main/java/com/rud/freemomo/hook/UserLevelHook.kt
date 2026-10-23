@@ -121,13 +121,8 @@ class UserLevelHook {
         capability: String,
         source: String
     ) {
-        unhooks.asReversed().forEach { unhook ->
-            try {
-                unhook.unhook()
-            } catch (rollbackError: Throwable) {
-                ThrowablePolicy.rethrowIfFatal(rollbackError)
-                Logger.error("$capability $source rollback failed", rollbackError)
-            }
+        unhookAllQuietly(unhooks.map { unhook -> HookUnhook { unhook.unhook() } }) { rollbackError ->
+            Logger.error("$capability $source rollback failed", rollbackError)
         }
     }
 

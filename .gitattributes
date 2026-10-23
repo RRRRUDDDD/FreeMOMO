@@ -1,1 +1,3 @@
 zygisk-companion/module/customize.sh text eol=lf
+zygisk-companion/test-host.sh text eol=lf
+native-jni/test-host.sh text eol=lf

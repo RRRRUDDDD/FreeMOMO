@@ -68,6 +68,41 @@ class HookDiscoveryPolicyTest {
     }
 
     @Test
+    fun `in-range original is recorded and replaced`() {
+        listOf(601, 671, 19_999).forEach { original ->
+            val recorded = mutableListOf<Int>()
+            val written = mutableListOf<Int>()
+            HookDiscoveryPolicy.gatedWordLimitReplacement(original, recorded::add, written::add)
+            assertEquals(listOf(original), recorded)
+            assertEquals(listOf(HookDiscoveryPolicy.WORD_LIMIT_REPLACEMENT), written)
+        }
+    }
+
+    @Test
+    fun `zero or out-of-range original is neither recorded nor replaced`() {
+        val recorded = mutableListOf<Int>()
+        val written = mutableListOf<Int>()
+        listOf(0, -5, 600, 20_000, 37_515_930).forEach { original ->
+            HookDiscoveryPolicy.gatedWordLimitReplacement(original, recorded::add, written::add)
+        }
+        assertTrue(recorded.isEmpty())
+        assertTrue(written.isEmpty())
+    }
+
+    @Test
+    fun `replacement write observes the already-recorded original`() {
+        var recorded: Int? = null
+        var seenByWrite: Int? = null
+        HookDiscoveryPolicy.gatedWordLimitReplacement(
+            671,
+            record = { recorded = it },
+            write = { seenByWrite = recorded }
+        )
+        assertEquals(671, recorded)
+        assertEquals(671, seenByWrite)
+    }
+
+    @Test
     fun `numeric level range is restricted to an already discovered display boundary`() {
         assertNull(HookDiscoveryPolicy.displayedLevelReplacement(0))
         assertEquals(21, HookDiscoveryPolicy.displayedLevelReplacement(1))
